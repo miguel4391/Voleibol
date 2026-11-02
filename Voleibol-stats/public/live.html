@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Direto — Voleibol</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .live-grid { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+    @media (min-width: 900px) { .live-grid { grid-template-columns: 1.3fr 1fr; } }
+    .last-play { text-align: center; margin-top: .8rem; font-size: 1rem; min-height: 1.5em; }
+    .top-scorers td, .top-scorers th { text-align: left; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="btn btn-sm home-link" href="/" title="Voltar à lista de jogos">← Jogos</a>
+    <b>Direto</b>
+    <span class="conn" id="conn">a ligar…</span>
+    <span class="spacer"></span>
+    <a class="link" id="lnk-score" href="#" hidden>Marcar</a>
+  </header>
+
+  <main class="wrap">
+    <nav class="tabs" role="tablist">
+      <button class="active" data-tab="live" role="tab">Em direto</button>
+      <button data-tab="stats" role="tab">Estatísticas</button>
+    </nav>
+
+    <div id="tab-live" class="live-grid">
+      <div>
+        <section class="card">
+          <div id="board"></div>
+          <div class="last-play" id="last-play"></div>
+        </section>
+        <section class="card hidden" id="court-card"></section>
+        <section class="card" id="current-chart"></section>
+        <section class="card">
+          <h2>Receção e defesa — <span id="us-name"></span></h2>
+          <div id="top"></div>
+        </section>
+      </div>
+      <section class="card">
+        <h2>Jogada a jogada</h2>
+        <ul class="feed" id="feed" style="max-height:none"></ul>
+      </section>
+    </div>
+
+    <div id="tab-stats" class="hidden"></div>
+  </main>
+
+  <script type="module" src="/js/live.js"></script>
+</body>
+</html>

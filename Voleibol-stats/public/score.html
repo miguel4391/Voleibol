@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Marcador — Voleibol</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 900px) { .layout { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); } }
+    .sel-info { font-size: .85rem; color: var(--text-secondary); min-height: 1.3em; margin: .5rem 0 .2rem; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="btn btn-sm home-link" href="/" title="Voltar à lista de jogos">← Jogos</a>
+    <b>Marcador</b>
+    <span class="conn" id="conn">a ligar…</span>
+    <span class="spacer"></span>
+    <a class="link" id="lnk-edit" href="#">Editar</a>
+    <a class="link" id="lnk-live" href="#">Direto</a>
+    <a class="link" id="lnk-dash" href="#">Dashboard</a>
+  </header>
+
+  <main class="wrap">
+    <div id="no-key" class="card hidden">
+      <h2>Sem permissão de marcador</h2>
+      <p>Este dispositivo não tem a chave de marcador deste jogo. Peça o <b>link de marcador</b> a quem criou o jogo, ou acompanhe em modo de espectador.</p>
+      <a class="btn" id="lnk-live2" href="#">Ver em direto</a>
+    </div>
+
+    <div id="app" class="layout hidden">
+      <div>
+        <section class="card" id="board"></section>
+
+        <section class="card">
+          <div class="row" style="justify-content:space-between">
+            <h2 style="margin:0"><span class="dot A"></span> <span class="nmA"></span> — <span id="set-lbl"></span></h2>
+            <span class="court-status" id="court-status"></span>
+          </div>
+          <div id="lineup-warn"></div>
+          <div id="court" style="margin-top:.5rem"></div>
+          <div class="bench" id="bench"></div>
+          <div class="sel-info" id="sel-info"></div>
+          <div class="row" style="margin-top:.4rem">
+            <button class="btn-sm" id="btn-lineup">Formação</button>
+            <button class="btn-sm" id="btn-sub">Substituição</button>
+            <button class="btn-sm" id="btn-libero">Líbero</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="row" style="justify-content:space-between;margin-bottom:.6rem">
+            <span class="phase" id="phase"></span>
+            <button class="btn-sm" id="btn-all">Mostrar todas as ações</button>
+          </div>
+          <div class="skills" id="skills"></div>
+        </section>
+
+        <section class="card">
+          <h3><span class="dot A"></span> Ponto para nós</h3>
+          <div class="quick">
+            <button id="pt-opp-err" class="pt-self">Erro do adversário</button>
+            <button id="pt-A">Outro</button>
+          </div>
+          <h3 style="margin-top:.8rem"><span class="dot B"></span> Ponto do adversário <span class="muted small">(sem toque nosso)</span></h3>
+          <div class="quick" style="grid-template-columns:1fr 1fr 1fr">
+            <button id="opp-ace" class="pt-opp">Ás</button>
+            <button id="opp-kill" class="pt-opp">Ataque</button>
+            <button id="pt-B" class="pt-opp">Outro</button>
+          </div>
+          <p class="small muted" style="margin:.5rem 0 0">Se um jogador nosso tocou na bola, registe antes no jogador: <b>Receção → Erro / Ás</b> (ás sofrido), <b>Defesa → Erro</b> (ataque adversário) ou <b>Defesa ao bloco → Erro</b> (depois de um remate nosso bloqueado). Registe só <b>uma</b> ação de ponto por jogada.</p>
+          <h3 style="margin-top:.8rem">Desconto de tempo</h3>
+          <div class="quick">
+            <button id="to-A"><span class="dot A"></span> Nós</button>
+            <button id="to-B"><span class="dot B"></span> Adversário</button>
+          </div>
+          <div class="row" style="margin-top:.75rem">
+            <button id="btn-undo">↶ Anular último</button>
+            <span class="spacer" style="flex:1"></span>
+            <button id="btn-close" class="btn-danger">Terminar jogo</button>
+          </div>
+        </section>
+      </div>
+
+      <div>
+        <section class="card">
+          <h2>Partilhar</h2>
+          <div class="row">
+            <button class="btn-sm" id="copy-live">Copiar link do direto</button>
+            <button class="btn-sm" id="copy-score">Copiar link de marcador</button>
+          </div>
+          <p class="small muted" style="margin:.5rem 0 0">O link de marcador dá permissão para registar ações — partilhe apenas com quem vai marcar.</p>
+        </section>
+        <section class="card">
+          <h2>Jogadas</h2>
+          <ul class="feed" id="feed"></ul>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
+
+  <script type="module" src="/js/score.js"></script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Estatísticas de Voleibol</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">🏐 Estatísticas de Voleibol</a>
+    <span class="spacer"></span>
+  </header>
+
+  <main class="wrap">
+    <section class="card roster-summary" id="roster-summary">
+      <div class="row" style="justify-content:space-between">
+        <h1>Escalões</h1>
+        <button class="btn-sm" id="btn-new-cat">+ Escalão</button>
+      </div>
+      <ul class="cat-list" id="cat-list"></ul>
+    </section>
+
+    <section class="card">
+      <div class="row" style="justify-content:space-between">
+        <h1>Jogos</h1>
+        <div class="row">
+          <select id="list-filter" aria-label="Filtrar por escalão" style="width:auto"></select>
+          <button class="btn-primary" id="btn-new">+ Novo jogo</button>
+        </div>
+      </div>
+      <ul class="match-list" id="list"><li class="muted">A carregar…</li></ul>
+    </section>
+
+    <!-- Plantel do clube -->
+    <section class="card hidden" id="roster-card">
+      <h1 id="roster-title">Escalão</h1>
+      <p class="small muted">Os jogadores deste escalão. Em cada jogo escolhe os convocados (até 12 jogadores + 2 líberos).</p>
+      <div class="grid2">
+        <div>
+          <label for="cat-name">Escalão</label>
+          <input id="cat-name" placeholder="Ex.: Sub-16, Juniores, Seniores">
+        </div>
+        <div>
+          <label for="team-name">Nome da equipa</label>
+          <input id="team-name" placeholder="Ex.: Leões VC">
+        </div>
+      </div>
+      <label>Jogadores</label>
+      <div class="roster-row small muted"><span>Nº</span><span>Nome</span><span>Posição habitual</span><span></span></div>
+      <div id="roster-rows"></div>
+      <div class="row" style="margin-top:.5rem">
+        <button type="button" id="btn-add-row">+ Jogador</button>
+        <button type="button" class="btn-danger hidden" id="btn-cat-delete">Apagar escalão</button>
+        <span style="flex:1"></span>
+        <button type="button" id="btn-roster-cancel">Fechar</button>
+        <button type="button" class="btn-primary" id="btn-roster-save">Guardar</button>
+      </div>
+    </section>
+
+    <!-- Novo jogo -->
+    <section class="card hidden" id="new-card">
+      <h1 id="form-title">Novo jogo</h1>
+      <p class="small muted hidden" id="edit-note">O jogo já começou: o escalão e o formato já não podem ser alterados.</p>
+      <form id="form">
+        <label for="category">Escalão</label>
+        <select id="category" required></select>
+        <div class="grid2">
+          <div>
+            <label for="title">Competição / descrição</label>
+            <input id="title" placeholder="Ex.: Campeonato Nacional — Jornada 5">
+          </div>
+          <div class="grid2" style="gap:.5rem">
+            <div>
+              <label for="date">Data</label>
+              <input id="date" type="date">
+            </div>
+            <div>
+              <label for="venue">Local</label>
+              <input id="venue" placeholder="Pavilhão">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:.5rem">
+          <div>
+            <label for="bestOf">Formato</label>
+            <select id="bestOf">
+              <option value="5">Melhor de 5 sets</option>
+              <option value="3">Melhor de 3 sets</option>
+              <option value="1">Set único</option>
+            </select>
+          </div>
+          <div class="grid2" style="gap:.5rem">
+            <div>
+              <label for="setPoints">Pontos por set</label>
+              <input id="setPoints" type="number" min="5" max="50" value="25">
+            </div>
+            <div>
+              <label for="decidingSetPoints">Set decisivo</label>
+              <input id="decidingSetPoints" type="number" min="5" max="50" value="15">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:.5rem">
+          <div>
+            <label><span class="dot A"></span> Convocados — <b id="our-name"></b></label>
+            <div class="row" style="justify-content:space-between">
+              <div class="squad-count" id="squad-count"></div>
+              <div class="row">
+                <button type="button" class="btn-sm" id="sq-all">Todos</button>
+                <button type="button" class="btn-sm" id="sq-none">Nenhum</button>
+              </div>
+            </div>
+            <div class="squad-list" id="squad-list"></div>
+            <label style="margin-top:.6rem" id="qa-label">Jogador que ainda não está no plantel?</label>
+            <div class="roster-row" id="quick-add">
+              <input type="number" min="0" max="99" id="qa-num" placeholder="Nº" aria-label="Número">
+              <input id="qa-name" placeholder="Nome" aria-label="Nome">
+              <select id="qa-pos" aria-label="Posição"></select>
+              <button type="button" class="btn-sm" id="qa-add" title="Acrescentar ao plantel e convocar" aria-label="Acrescentar">+</button>
+            </div>
+          </div>
+          <div>
+            <label for="nameB"><span class="dot B"></span> Adversário</label>
+            <input id="nameB" placeholder="Nome da equipa adversária" required>
+            <p class="small muted">Quem serve primeiro e a formação inicial de cada set (P1–P6, funções e líbero) definem-se no ecrã do marcador, antes do primeiro ponto do set.</p>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:1rem">
+          <button class="btn-primary" type="submit" id="btn-submit">Criar jogo e começar a marcar</button>
+          <button type="button" id="btn-cancel">Cancelar</button>
+          <span style="flex:1"></span>
+          <button type="button" class="btn-danger hidden" id="btn-delete">Apagar jogo</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script type="module" src="/js/home.js"></script>
+</body>
+</html>

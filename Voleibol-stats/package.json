@@ -1,0 +1,14 @@
+{
+  "name": "voleibol-estatisticas",
+  "version": "1.0.0",
+  "description": "Registo de estatísticas de jogos de voleibol com acompanhamento em direto e dashboard",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
