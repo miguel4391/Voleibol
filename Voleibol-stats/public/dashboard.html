@@ -14,43 +14,43 @@
     <span class="conn" id="conn"></span>
     <span class="spacer"></span>
     <a class="link" id="lnk-live" href="#">Direto</a>
-    <a class="link" id="lnk-csv" href="#">Exportar CSV</a>
+    <a class="link" id="lnk-xlsx" href="#">Excel</a>
+    <a class="link" id="lnk-pdf" href="#" target="_blank">Relatório PDF</a>
   </header>
   <main class="wrap" id="dash"><p class="muted">A carregar…</p></main>
 
   <script type="module">
-    import { $, param, subscribe } from '/js/common.js';
-    import { createDashboard } from '/js/dashboard.js';
-    import { computeStats, derived } from '/js/engine.js';
+    import { $, param, subscribe, requireLogin, isAdmin } from '/js/common.js';
+    import { createDashboard, workbookSheets } from '/js/dashboard.js';
+    import { buildXlsx, download } from '/js/xlsx.js';
 
     const id = param('id');
     if (!id) location.href = '/';
+    const user = await requireLogin();
     $('#lnk-live').href = `/live.html?id=${id}`;
     const dash = createDashboard($('#dash'));
     let current;
-    subscribe(id, (m) => { current = m; dash.update(m); }, (ok) => {
+    subscribe(id, (m) => {
+      // só os utilizadores do escalão do jogo (e o administrador)
+      if (!isAdmin(user) && !user.categories.includes(m.category)) {
+        $('#dash').innerHTML = '<section class="card"><h2>Sem acesso</h2><p>Este jogo é de um escalão a que não pertence.</p></section>';
+        return;
+      }
+      current = m; dash.update(m);
+    }, (ok) => {
       $('#conn').textContent = ok ? '' : '● sem ligação';
       $('#conn').classList.toggle('off', !ok);
     });
 
-    // exportação das estatísticas por jogador
-    $('#lnk-csv').onclick = (e) => {
+    // exportação para Excel (.xlsx) e relatório para PDF
+    const safe = (t) => t.replace(/[\\/:*?"<>|]+/g, ' ').trim();
+    $('#lnk-xlsx').onclick = (e) => {
       e.preventDefault();
       if (!current) return;
-      const { players } = computeStats(current);
-      const head = ['Numero','Nome','Rececoes','Rec perfeita','Rec boa','Rec ma','Rec erro/as','Rec media (0-3)','Rec positiva %',
-        'Defesas','Def boa','Def ma','Def erro','Def boa %','Def bloco','Def bloco boa','Def bloco erro','Bloco pts','Bloco toques','Bloco erros',
-        'Pontos','Erros','Ataques','Ataque pts','Ataque erros','Bloqueados','Eficacia %','Servicos','Ases','Erros servico','Assistencias'];
-      const rows = players.A.map((p) => { const d = derived(p); return [
-        p.number, p.name, p.reception.tot, p.reception.perfect, p.reception.good, p.reception.poor, p.reception.err, d.recAvg ?? '', d.recPositive ?? '',
-        p.dig.tot, p.dig.good, p.dig.poor, p.dig.err, d.digPositive ?? '', p.cover.tot, p.cover.good, p.cover.err, p.block.pts, p.block.touch, p.block.err,
-        p.points, p.errors, p.attack.tot, p.attack.kill, p.attack.err, p.attack.blk, d.attackEff ?? '', p.serve.tot, p.serve.ace, p.serve.err, p.set.assist]; });
-      const csv = [head, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
-      a.download = `estatisticas-${current.teams.A.name}-vs-${current.teams.B.name}.csv`;
-      a.click();
+      const name = safe(`estatisticas ${current.teams.A.name} vs ${current.teams.B.name}${current.date ? ' ' + current.date : ''}`);
+      download(buildXlsx(workbookSheets(current)), `${name}.xlsx`);
     };
+    $('#lnk-pdf').href = `/report.html?id=${id}`;
   </script>
 </body>
 </html>

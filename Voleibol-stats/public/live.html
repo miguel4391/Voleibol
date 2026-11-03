@@ -7,10 +7,11 @@
   <link rel="icon" href="/favicon.svg">
   <link rel="stylesheet" href="/style.css">
   <style>
-    .live-grid { display: grid; gap: 1rem; grid-template-columns: 1fr; }
-    @media (min-width: 900px) { .live-grid { grid-template-columns: 1.3fr 1fr; } }
+    .live-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+    @media (min-width: 760px) { .live-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); } }
     .last-play { text-align: center; margin-top: .8rem; font-size: 1rem; min-height: 1.5em; }
     .top-scorers td, .top-scorers th { text-align: left; }
+    #current-chart .chart { max-width: 640px; }
   </style>
 </head>
 <body>
@@ -28,19 +29,27 @@
       <button data-tab="stats" role="tab">Estatísticas</button>
     </nav>
 
-    <div id="tab-live" class="live-grid">
-      <div>
-        <section class="card">
-          <div id="board"></div>
-          <div class="last-play" id="last-play"></div>
-        </section>
-        <section class="card hidden" id="court-card"></section>
-        <section class="card" id="current-chart"></section>
-        <section class="card">
-          <h2>Receção e defesa — <span id="us-name"></span></h2>
-          <div id="top"></div>
-        </section>
+    <div id="tab-live">
+      <div class="live-grid">
+        <div>
+          <section class="card">
+            <div id="board"></div>
+            <div class="last-play" id="last-play"></div>
+          </section>
+          <section class="card hidden" id="court-card"></section>
+        </div>
+        <div>
+          <section class="card">
+            <h2>Receção e defesa — <span class="us-name"></span></h2>
+            <div id="sum-rec"></div>
+          </section>
+          <section class="card">
+            <h2>Ataque — <span class="us-name"></span></h2>
+            <div id="sum-atk"></div>
+          </section>
+        </div>
       </div>
+      <section class="card" id="current-chart"></section>
       <section class="card">
         <h2>Jogada a jogada</h2>
         <ul class="feed" id="feed" style="max-height:none"></ul>

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Entrar — Estatísticas de Voleibol</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .login { max-width: 24rem; margin: 2rem auto; }
+    .login button[type=submit] { width: 100%; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">🏐 Estatísticas de Voleibol</a>
+  </header>
+
+  <main class="wrap">
+    <section class="card login">
+      <h1>Entrar</h1>
+      <form id="form">
+        <label for="username">Utilizador</label>
+        <input id="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <button class="btn-primary" type="submit">Entrar</button>
+      </form>
+      <p class="small muted" style="margin:1rem 0 0">Vai só marcar um jogo e tem o <b>PIN do jogo</b>? Abra o link do marcador desse jogo: o PIN é pedido lá, sem precisar de conta.</p>
+    </section>
+  </main>
+
+  <script type="module">
+    import { $, api, toast } from '/js/common.js';
+
+    // só aceita destinos dentro da aplicação
+    const next = new URLSearchParams(location.search).get('next');
+    const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
+
+    api('me').then((r) => { if (r.user) location.replace(target); }).catch(() => {});
+
+    $('#form').onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api('login', { method: 'POST', body: { username: $('#username').value.trim(), password: $('#password').value } });
+        location.replace(target);
+      } catch (err) {
+        toast(err.message);
+        $('#password').select();
+      }
+    };
+  </script>
+</body>
+</html>

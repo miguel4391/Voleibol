@@ -1,4 +1,4 @@
-import { $, esc, api, param, getKey, setKey, toast } from './common.js';
+import { $, esc, api, param, toast, requireLogin, isAdmin } from './common.js';
 import { ROLES, MAX_PLAYERS, MAX_LIBEROS } from './engine.js';
 
 let cats = []; // escalões, cada um com o seu plantel
@@ -6,10 +6,15 @@ let catId = null; // escalão escolhido no formulário do jogo
 let rosterCat = null; // escalão aberto no editor de plantel (null = novo)
 const team = () => cats.find((c) => c.id === catId) || { name: '', teamName: '', players: [] };
 const catName = (id) => cats.find((c) => c.id === id)?.name || '';
-let editing = null; // { id, key, match } quando o formulário está a editar um jogo
+let editing = null; // { id, match } quando o formulário está a editar um jogo
 
-// no computador onde corre o servidor, este browser pode gerir todos os jogos
-const whoami = api('whoami').catch(() => ({ local: false }));
+// sem sessão vai para o login; só o administrador gere jogos, escalões e plantel
+const user = await requireLogin();
+const admin = isAdmin(user);
+if (!admin) {
+  $('#roster-summary').classList.add('hidden');
+  $('#btn-new').classList.add('hidden');
+}
 
 async function loadList() {
   const list = $('#list');
@@ -17,14 +22,12 @@ async function loadList() {
     const all = await api('matches');
     const filter = $('#list-filter').value;
     const matches = filter ? all.filter((m) => m.category === filter) : all;
-    if ((await whoami).local) {
-      await Promise.all(matches.filter((m) => !getKey(m.id)).map((m) =>
-        api(`matches/${m.id}/key`).then(({ key }) => setKey(m.id, key)).catch(() => {})));
-    }
     if (!matches.length) {
       list.innerHTML = all.length
         ? '<li class="muted">Não há jogos deste escalão.</li>'
-        : '<li class="muted">Ainda não há jogos. Crie o escalão com o seu plantel e depois o primeiro jogo com “+ Novo jogo”.</li>';
+        : admin
+          ? '<li class="muted">Ainda não há jogos. Crie o escalão com o seu plantel e depois o primeiro jogo com “+ Novo jogo”.</li>'
+          : `<li class="muted">${user.categories.length ? 'Ainda não há jogos dos seus escalões.' : 'Ainda não pertence a nenhum escalão. Peça acesso ao administrador.'}</li>`;
       return;
     }
     list.innerHTML = matches
@@ -34,7 +37,6 @@ async function loadList() {
           : m.started ? '<span class="badge live">Direto</span>' : '<span class="badge">Por começar</span>';
         const score = `${m.setsWon.A} - ${m.setsWon.B}`;
         const cur = m.current && m.started ? `<div class="small muted">(${m.current.A}-${m.current.B})</div>` : '';
-        const canScore = !!getKey(m.id);
         return `<li>
           <div class="teams">
             <div><span class="dot A"></span> <b>${esc(m.teams.A)}</b> vs <span class="dot B"></span> <b>${esc(m.teams.B)}</b></div>
@@ -42,10 +44,10 @@ async function loadList() {
           </div>
           <div class="score">${score}${cur}</div>
           <div class="row">
-            ${canScore ? `<a class="btn btn-sm btn-primary" href="/score.html?id=${m.id}">Marcar</a>` : ''}
+            <a class="btn btn-sm btn-primary" href="/score.html?id=${m.id}">Marcar</a>
             <a class="btn btn-sm" href="/live.html?id=${m.id}">Direto</a>
             <a class="btn btn-sm" href="/dashboard.html?id=${m.id}">Dashboard</a>
-            ${canScore ? `<button class="btn-sm" data-edit="${m.id}">Editar</button>
+            ${admin ? `<button class="btn-sm" data-edit="${m.id}">Editar</button>
               <button class="btn-sm btn-danger" data-del="${m.id}" data-label="${esc(`${m.teams.A} vs ${m.teams.B}`)}">Apagar</button>` : ''}
           </div>
         </li>`;
@@ -66,7 +68,7 @@ $('#list').addEventListener('click', (e) => {
 async function deleteMatch(id, label) {
   if (!confirm(`Apagar o jogo “${label}”?\n\nTodas as estatísticas deste jogo serão perdidas. Esta ação não pode ser desfeita.`)) return;
   try {
-    await api(`matches/${id}`, { method: 'DELETE', key: getKey(id) });
+    await api(`matches/${id}`, { method: 'DELETE' });
     localStorage.removeItem(`vb-key-${id}`);
     if (editing?.id === id) closeForm();
     toast('Jogo apagado');
@@ -303,16 +305,11 @@ $('#btn-new').onclick = async () => {
 };
 
 async function openEdit(id) {
-  let key = getKey(id);
-  if (!key && (await whoami).local) {
-    key = await api(`matches/${id}/key`).then((r) => r.key).catch(() => null);
-    if (key) setKey(id, key);
-  }
-  if (!key) { toast('Este dispositivo não tem a chave de marcador deste jogo'); return; }
+  if (!admin) { toast('Só o administrador pode editar jogos'); return; }
   try {
     const m = await api(`matches/${id}`);
     await loadCategories();
-    editing = { id, key, match: m };
+    editing = { id, match: m };
     catId = m.category || null;
     $('#form-title').textContent = 'Editar jogo';
     $('#btn-submit').textContent = 'Guardar alterações';
@@ -324,6 +321,7 @@ async function openEdit(id) {
     $('#setPoints').value = m.config.setPoints;
     $('#decidingSetPoints').value = m.config.decidingSetPoints;
     $('#nameB').value = m.teams.B.name;
+    $('#pin').value = m.pin || '';
     setConfigLocked(m.events.length > 0);
     renderCategorySelect(m.events.length > 0);
     renderSquad(new Map(m.teams.A.players.map((p) => [p.number, p])));
@@ -351,14 +349,13 @@ $('#form').onsubmit = async (e) => {
     setPoints: Number($('#setPoints').value),
     decidingSetPoints: Number($('#bestOf').value === '1' ? $('#setPoints').value : $('#decidingSetPoints').value),
   };
-  const base = { title: $('#title').value, date: $('#date').value, venue: $('#venue').value, category: catId };
+  const base = { title: $('#title').value, date: $('#date').value, venue: $('#venue').value, category: catId, pin: $('#pin').value.trim() };
   const ourName = team().teamName || 'A nossa equipa';
   try {
     if (editing) {
       const started = editing.match.events.length > 0;
       await api(`matches/${editing.id}`, {
         method: 'PUT',
-        key: editing.key,
         body: {
           ...base,
           ...(started ? {} : { config }),
@@ -370,7 +367,7 @@ $('#form').onsubmit = async (e) => {
       loadList();
       return;
     }
-    const { id, key } = await api('matches', {
+    const { id } = await api('matches', {
       method: 'POST',
       body: {
         ...base,
@@ -378,7 +375,6 @@ $('#form').onsubmit = async (e) => {
         teams: { A: { name: ourName, players: squad }, B: { name: $('#nameB').value, players: [] } },
       },
     });
-    setKey(id, key);
     location.href = `/score.html?id=${id}`;
   } catch (err) {
     toast(err.message);

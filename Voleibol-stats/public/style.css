@@ -64,6 +64,7 @@ h3 { font-size: .95rem; color: var(--text-secondary); }
 .topbar .spacer { flex: 1; }
 .topbar a.link { font-size: .9rem; text-decoration: none; }
 .topbar .home-link { font-weight: 600; white-space: nowrap; }
+.userbar { display: inline-flex; gap: .6rem; align-items: center; white-space: nowrap; }
 @media (max-width: 480px) { .topbar { gap: .5rem; padding: .5rem .6rem; } .topbar a.link { font-size: .85rem; } .topbar .conn:not(.off) { display: none; } }
 
 .wrap { max-width: 1100px; margin: 0 auto; padding: 1rem; }

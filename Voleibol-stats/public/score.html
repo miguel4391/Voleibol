@@ -7,8 +7,14 @@
   <link rel="icon" href="/favicon.svg">
   <link rel="stylesheet" href="/style.css">
   <style>
-    .layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
-    @media (min-width: 900px) { .layout { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); } }
+    .layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+    .layout > .full { grid-column: 1 / -1; }
+    /* Tablet e desktop: campo à esquerda, ações à direita, lado a lado */
+    @media (min-width: 640px) {
+      .wrap:has(> #app) { max-width: 1400px; }
+      .layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .8rem; }
+    }
+    @media (min-width: 1100px) { .layout { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); } }
     .sel-info { font-size: .85rem; color: var(--text-secondary); min-height: 1.3em; margin: .5rem 0 .2rem; }
   </style>
 </head>
@@ -25,13 +31,18 @@
 
   <main class="wrap">
     <div id="no-key" class="card hidden">
-      <h2>Sem permissão de marcador</h2>
-      <p>Este dispositivo não tem a chave de marcador deste jogo. Peça o <b>link de marcador</b> a quem criou o jogo, ou acompanhe em modo de espectador.</p>
+      <h2>Marcar este jogo</h2>
+      <p>Introduza o <b>PIN deste jogo</b>, definido pelo administrador. Só é preciso uma vez neste dispositivo. <span id="login-hint"><a id="lnk-login" href="/login.html">Ou inicie sessão</a> se tem conta.</span></p>
+      <form id="pin-form" class="row" autocomplete="off">
+        <input id="pin" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN" style="max-width:10rem" required>
+        <button class="btn-primary" type="submit">Entrar</button>
+      </form>
+      <p class="small muted" style="margin:.8rem 0 .5rem">Também pode usar o <b>link de marcador</b> deste jogo, ou só acompanhar:</p>
       <a class="btn" id="lnk-live2" href="#">Ver em direto</a>
     </div>
 
     <div id="app" class="layout hidden">
-      <div>
+      <div class="col-court">
         <section class="card" id="board"></section>
 
         <section class="card">
@@ -49,7 +60,9 @@
             <button class="btn-sm" id="btn-libero">Líbero</button>
           </div>
         </section>
+      </div>
 
+      <div class="col-actions">
         <section class="card">
           <div class="row" style="justify-content:space-between;margin-bottom:.6rem">
             <span class="phase" id="phase"></span>
@@ -84,7 +97,11 @@
         </section>
       </div>
 
-      <div>
+      <div class="full">
+        <section class="card">
+          <h2>Jogadas</h2>
+          <ul class="feed" id="feed"></ul>
+        </section>
         <section class="card">
           <h2>Partilhar</h2>
           <div class="row">
@@ -92,10 +109,6 @@
             <button class="btn-sm" id="copy-score">Copiar link de marcador</button>
           </div>
           <p class="small muted" style="margin:.5rem 0 0">O link de marcador dá permissão para registar ações — partilhe apenas com quem vai marcar.</p>
-        </section>
-        <section class="card">
-          <h2>Jogadas</h2>
-          <ul class="feed" id="feed"></ul>
         </section>
       </div>
     </div>

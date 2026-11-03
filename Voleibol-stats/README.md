@@ -19,25 +19,46 @@ O servidor mostra os endereços de acesso:
 
 | Página | Para quem | O que faz |
 |---|---|---|
-| `/` | todos | Escalões e planteis, lista de jogos (com filtro por escalão) e criação de um novo jogo com a convocatória |
-| `/score.html?id=…` | marcador | Formação, substituições, líbero e registo das ações. Só funciona com a chave de marcador |
-| `/live.html?id=…` | espectadores | Marcador, formação em campo, jogada a jogada, evolução do set e resumo da receção e defesa, atualizados em tempo real. No fim do jogo muda sozinho para as estatísticas |
-| `/dashboard.html?id=…` | todos | Dashboard completo, com filtro por set e exportação para CSV |
+| `/login.html` | todos | Entrar com utilizador e password |
+| `/` | com sessão | Escalões e planteis, lista de jogos (com filtro por escalão) e criação de um novo jogo com a convocatória |
+| `/score.html?id=…` | marcador | Formação, substituições, líbero e registo das ações. Para o administrador, para os utilizadores do escalão do jogo ou com o PIN do jogo |
+| `/live.html?id=…` | espectadores | Marcador, formação em campo, jogada a jogada, evolução do set e resumos da receção e defesa e do ataque, atualizados em tempo real. No fim do jogo muda sozinho para as estatísticas |
+| `/dashboard.html?id=…` | com sessão | Dashboard completo, com filtro por set, exportação para Excel e relatório para PDF |
+| `/report.html?id=…` | com sessão | Relatório do jogo em A4, pronto a imprimir ou guardar como PDF |
+| `/users.html` | com sessão | Mudar a própria password; o administrador cria e gere os utilizadores |
 
 Em todas as páginas, o botão **← Jogos** (canto superior esquerdo) volta à lista de jogos.
 
 ### Editar e apagar jogos
 
-Na lista de jogos, os botões **Editar** e **Apagar** aparecem nos jogos que este dispositivo pode marcar. No marcador também há o link **Editar** no topo.
+Na lista de jogos, os botões **Editar** e **Apagar** só aparecem ao administrador. No marcador, o administrador também tem o link **Editar** no topo.
 
 - **Editar:** permite mudar escalão (só antes do primeiro evento), descrição, data, local, adversário e convocados. O formato (sets e pontos) só se pode mudar antes do primeiro evento. Jogadores que já têm jogadas registadas não podem sair da convocatória nem mudar o estatuto de líbero.
 - **Apagar:** pede confirmação e remove o jogo e todas as estatísticas. Não pode ser desfeito.
 
-### Permissões
+### Utilizadores e permissões
 
-Quem cria o jogo fica com a **chave de marcador** guardada no browser. Para marcar noutro dispositivo, use “Copiar link de marcador” na página do marcador. Esse link inclui a chave, por isso partilhe-o só com quem vai marcar. O link do direto é público e só permite ver.
+A aplicação exige **login** (página `/login.html`). Há dois tipos de conta:
 
-O **computador onde corre o servidor** (aberto em `http://localhost:3080`) pode gerir todos os jogos: marcar, editar e apagar qualquer jogo, incluindo os finalizados e os criados noutro dispositivo. Também pode copiar o link de marcador de qualquer jogo para o dar a um telemóvel. Os outros dispositivos da rede continuam a precisar da chave.
+| | Administrador | Utilizador |
+|---|---|---|
+| Ver a lista de jogos, marcar e ver o dashboard | todos os jogos | só os jogos dos seus escalões |
+| Criar, editar e apagar jogos, e definir o PIN de cada jogo | sim | não |
+| Criar e editar escalões e plantel | sim | não |
+| Criar e gerir utilizadores (página **Utilizadores**) | sim | não |
+
+- **Primeiro arranque:** é criado o administrador `admin` com a password `Ac@mOwner`. **Mude-a** logo em **Utilizadores → A minha conta** (ou clicando no seu nome, no topo).
+- **Criar utilizadores:** em **Utilizadores → + Utilizador**, indique o utilizador (para entrar), o nome, a password (mínimo 6 caracteres), o tipo e os escalões a que pertence. Um administrador tem acesso a todos os escalões.
+- Tem de existir sempre pelo menos um administrador, e ninguém pode apagar o próprio utilizador.
+- **Esqueceu a password do administrador?** Pare o servidor, apague o ficheiro `Voleibol-dados/_utilizadores.json` e arranque de novo. O administrador `admin` é recriado com a password inicial, mas os outros utilizadores perdem-se e têm de ser criados outra vez.
+- A sessão dura 30 dias, mesmo que o servidor seja reiniciado. O botão **Sair** termina a sessão.
+- Depois de 5 tentativas erradas (login ou PIN), o dispositivo fica bloqueado durante 5 minutos.
+
+**PIN do jogo (marcar sem conta):** ao criar ou editar um jogo, o administrador pode definir um PIN de 4 a 8 algarismos. Num tablet ou telemóvel sem sessão, o botão **Marcar** pede esse PIN, que só é preciso uma vez nesse dispositivo. O PIN só dá acesso ao marcador desse jogo. Sem PIN definido, só marcam o administrador e os utilizadores do escalão.
+
+**Link de marcador:** no marcador, “Copiar link de marcador” gera um link que permite marcar esse jogo sem conta nem PIN. Partilhe-o só com quem vai marcar.
+
+**Direto:** o link do direto é público e só permite ver. Inclui também as estatísticas do jogo, que aparecem quando o jogo termina.
 
 ## Escalões, plantel e convocatória
 
@@ -118,8 +139,15 @@ O marcador, os sets (25 pontos e 15 no set decisivo, com 2 de diferença) e a eq
 - **Por rotação:** side-out e break-point em cada rotação (R1–R6 = rotação com o passador em P1–P6). Só aparece quando há formações definidas.
 - **Defesa:** defesas boas, más e falhadas; **defesa ao bloco** (cobertura depois de um remate nosso bloqueado: boa, má, erro), contada à parte das defesas ao ataque; bloco (pontos, toques, erros) e pontos sofridos por origem (ataque, ás, bloco, erros nossos). Um remate bloqueado conta sempre contra a eficácia do atacante, mas só dá ponto ao adversário se a defesa ao bloco falhar.
 - **Jogos antigos:** antes, “Bloqueado” dava logo ponto ao adversário. Ao arrancar, o servidor converte esses jogos, acrescentando a cada bloqueio uma defesa ao bloco falhada sem toque, para manter os resultados.
-- **Por jogador:** tabelas de receção, defesa e bloco, e ataque, serviço e passe. Todas podem ser ordenadas por qualquer coluna e estão no CSV exportado.
+- **Por jogador:** tabelas de receção, defesa e bloco, e ataque, serviço e passe. Todas podem ser ordenadas por qualquer coluna e estão no Excel exportado.
 - **Eficácia de ataque** = (pontos − erros − bloqueados) / total de ataques.
+
+### Excel e relatório PDF
+
+No topo do dashboard:
+
+- **Excel:** descarrega um ficheiro `.xlsx` com as folhas Resumo (parciais e indicadores do jogo e de cada set), Receção de serviço, Defesa e bloco, Ataque, serviço e passe, Por posição e Jogada a jogada.
+- **Relatório PDF:** abre o relatório do jogo em A4. Inclui resultado, indicadores, pontos ganhos e sofridos, receção, ataque e defesa, rotações, destaques, evolução do marcador e tabelas por jogador. Carregue em **Imprimir / Guardar como PDF** e escolha “Guardar como PDF” no diálogo de impressão. As jogadoras sem nenhuma ação registada não entram nas tabelas: aparecem só numa linha no fim.
 
 ## Dados e atualização
 

@@ -98,7 +98,7 @@ setInterval(() => {
 }, 25000).unref();
 
 // ---------- Helpers ----------
-const publicMatch = ({ adminKey, ...rest }) => ({ ...rest, categoryName: findCat(rest.category)?.name || '' });
+const publicMatch = ({ adminKey, pin, ...rest }) => ({ ...rest, categoryName: findCat(rest.category)?.name || '' });
 
 function summary(m) {
   const s = computeState(m);
@@ -119,8 +119,8 @@ function summary(m) {
   };
 }
 
-function send(res, status, body) {
-  res.writeHead(status, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
+function send(res, status, body, headers = {}) {
+  res.writeHead(status, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store', ...headers });
   res.end(JSON.stringify(body));
 }
 
@@ -139,15 +139,118 @@ async function readBody(req) {
   }
 }
 
-/** Pedido feito no próprio computador onde corre o servidor (gestor de todos os jogos). */
-const isLocal = (req) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
-
-function authorized(req, m) {
-  if (isLocal(req)) return true;
-  const key = String(req.headers['x-admin-key'] || '');
-  const a = Buffer.from(key);
-  const b = Buffer.from(m.adminKey);
+const safeEqual = (x, y) => {
+  const a = Buffer.from(String(x ?? ''));
+  const b = Buffer.from(String(y ?? ''));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
+// limita tentativas erradas (login e PIN) por IP: 5 falhas bloqueiam durante 5 minutos
+const fails = new Map();
+function guardTries(req, kind, ok) {
+  const k = `${kind}:${req.socket.remoteAddress}`;
+  const now = Date.now();
+  const f = fails.get(k) || { n: 0, until: 0 };
+  if (f.until > now) throw Object.assign(new Error('Demasiadas tentativas. Tente daqui a alguns minutos.'), { status: 429 });
+  const res = ok();
+  if (res) fails.delete(k);
+  else {
+    const n = (f.until ? 0 : f.n) + 1; // depois de um bloqueio, a contagem recomeça
+    fails.set(k, { n, until: n >= 5 ? now + 5 * 60_000 : 0 });
+  }
+  return res;
+}
+
+// ---------- Utilizadores e sessões ----------
+// admin: gere tudo (jogos, PIN dos jogos, escalões/plantel, utilizadores).
+// user: vê e marca os jogos dos escalões a que pertence.
+const USERS_FILE = path.join(DATA, '_utilizadores.json');
+const SESSIONS_FILE = path.join(DATA, '_sessoes.json');
+const SESSION_DAYS = 30;
+let users = [];
+try { users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch { /* ainda não existe */ }
+const writeJson = (file, data) => { fs.writeFileSync(`${file}.tmp`, JSON.stringify(data)); fs.renameSync(`${file}.tmp`, file); };
+const saveUsers = () => writeJson(USERS_FILE, users);
+
+const hashPassword = (pw) => {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return { salt, hash: crypto.scryptSync(String(pw), salt, 64).toString('hex') };
+};
+const checkPassword = (u, pw) => safeEqual(crypto.scryptSync(String(pw), u.salt, 64).toString('hex'), u.hash);
+
+// primeiro arranque (ou sem nenhum administrador): cria o administrador por omissão
+if (!users.some((u) => u.role === 'admin')) {
+  users.push({ id: crypto.randomBytes(4).toString('hex'), username: 'admin', name: 'Administrador', role: 'admin', categories: [], ...hashPassword('Ac@mOwner') });
+  saveUsers();
+  console.log('Criado o utilizador administrador “admin”.');
+}
+
+// sessões: guarda-se só o hash do token, que fica num cookie HttpOnly
+const sessions = new Map(); // sha256(token) -> { userId, exp }
+try { for (const [k, v] of JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'))) if (v.exp > Date.now()) sessions.set(k, v); } catch { /* sem sessões */ }
+const saveSessions = () => writeJson(SESSIONS_FILE, [...sessions]);
+const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+
+function sessionToken(req) {
+  const m = /(?:^|;\s*)vb_session=([a-f0-9]+)/.exec(req.headers.cookie || '');
+  return m ? m[1] : null;
+}
+function currentUser(req) {
+  if ('user' in req) return req.user;
+  const t = sessionToken(req);
+  const s = t && sessions.get(sha(t));
+  req.user = s && s.exp > Date.now() ? users.find((u) => u.id === s.userId) || null : null;
+  return req.user;
+}
+const sessionCookie = (token, maxAge) =>
+  `vb_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+
+const publicUser = ({ salt, hash, ...u }) => u;
+const isAdmin = (u) => u?.role === 'admin';
+/** O utilizador pode ver e marcar este jogo? */
+const canAccess = (u, m) => isAdmin(u) || (!!u && u.categories.includes(m.category));
+
+const needLogin = () => Object.assign(new Error('Inicie sessão'), { status: 401 });
+const forbidden = (msg = 'Sem permissão') => Object.assign(new Error(msg), { status: 403 });
+function requireUser(req) {
+  const u = currentUser(req);
+  if (!u) throw needLogin();
+  return u;
+}
+function requireAdmin(req) {
+  const u = requireUser(req);
+  if (!isAdmin(u)) throw forbidden('Só o administrador pode fazer isto');
+  return u;
+}
+
+/** Pode marcar o jogo: utilizador com acesso, ou dispositivo com a chave do jogo (link ou PIN). */
+function authorized(req, m) {
+  return canAccess(currentUser(req), m) || safeEqual(req.headers['x-admin-key'] || '', m.adminKey);
+}
+
+function cleanPassword(pw) {
+  const p = String(pw ?? '');
+  if (p.length < 6) throw badRequest('A password deve ter pelo menos 6 caracteres');
+  return p.slice(0, 200);
+}
+function cleanUser(body, prev = {}) {
+  const username = str(body.username ?? prev.username, 40).toLowerCase();
+  if (!/^[a-z0-9._-]{2,40}$/.test(username)) throw badRequest('O utilizador deve ter 2 a 40 letras, algarismos, “.”, “_” ou “-”, sem espaços');
+  if (users.some((u) => u.id !== prev.id && u.username === username)) throw badRequest(`Já existe o utilizador “${username}”`);
+  const role = (body.role ?? prev.role) === 'admin' ? 'admin' : 'user';
+  const cats = Array.isArray(body.categories) ? body.categories : prev.categories || [];
+  return {
+    username,
+    name: str(body.name ?? prev.name, 60) || username,
+    role,
+    categories: [...new Set(cats.map(String))].filter((c) => findCat(c)),
+  };
+}
+
+function cleanPin(v) {
+  const p = String(v ?? '').trim();
+  if (p && !/^\d{4,8}$/.test(p)) throw badRequest('O PIN do jogo deve ter de 4 a 8 algarismos');
+  return p;
 }
 
 const str = (v, max = 80) => String(v ?? '').trim().slice(0, max);
@@ -251,10 +354,85 @@ function cleanConfig(c = {}) {
 // ---------- API ----------
 async function api(req, res, parts) {
   const [, , id, sub, extra] = parts; // ['', 'api', 'matches', id?, sub?]
-  if (parts[1] === 'whoami' && req.method === 'GET') return send(res, 200, { local: isLocal(req) });
-  if (parts[1] === 'categories') {
+  // ----- sessão -----
+  if (parts[1] === 'login' && req.method === 'POST') {
+    const body = await readBody(req);
+    const username = str(body.username, 40).toLowerCase();
+    const u = users.find((x) => x.username === username);
+    const ok = guardTries(req, 'login', () => !!u && checkPassword(u, String(body.password ?? '')));
+    if (!ok) return send(res, 401, { error: 'Utilizador ou password errados' });
+    const token = crypto.randomBytes(32).toString('hex');
+    sessions.set(sha(token), { userId: u.id, exp: Date.now() + SESSION_DAYS * 86_400_000 });
+    for (const [k, s] of sessions) if (s.exp <= Date.now()) sessions.delete(k);
+    saveSessions();
+    return send(res, 200, publicUser(u), { 'Set-Cookie': sessionCookie(token, SESSION_DAYS * 86_400) });
+  }
+  if (parts[1] === 'logout' && req.method === 'POST') {
+    const t = sessionToken(req);
+    if (t && sessions.delete(sha(t))) saveSessions();
+    return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie('', 0) });
+  }
+  if (parts[1] === 'me') {
+    const u = currentUser(req);
+    if (req.method === 'GET') return send(res, 200, { user: u ? publicUser(u) : null });
+    // mudar a própria password
+    if (req.method === 'PUT' && id === 'password') {
+      requireUser(req);
+      const body = await readBody(req);
+      if (!checkPassword(u, String(body.current ?? ''))) return send(res, 400, { error: 'A password atual está errada' });
+      Object.assign(u, hashPassword(cleanPassword(body.password)));
+      saveUsers();
+      return send(res, 200, { ok: true });
+    }
+    return send(res, 405, { error: 'Método não suportado' });
+  }
+
+  // ----- utilizadores (só administrador) -----
+  if (parts[1] === 'users') {
+    const me = requireAdmin(req);
     if (!id) {
-      if (req.method === 'GET') return send(res, 200, categories);
+      if (req.method === 'GET') return send(res, 200, users.map(publicUser));
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        const u = { id: newId(), ...cleanUser(body), ...hashPassword(cleanPassword(body.password)) };
+        users.push(u);
+        saveUsers();
+        return send(res, 201, publicUser(u));
+      }
+      return send(res, 405, { error: 'Método não suportado' });
+    }
+    const u = users.find((x) => x.id === id);
+    if (!u) return send(res, 404, { error: 'Utilizador não encontrado' });
+    const otherAdmins = users.some((x) => x.id !== u.id && x.role === 'admin');
+    if (req.method === 'PUT') {
+      const body = await readBody(req);
+      const next = cleanUser(body, u);
+      if (u.role === 'admin' && next.role !== 'admin' && !otherAdmins) throw badRequest('Tem de existir pelo menos um administrador');
+      Object.assign(u, next);
+      if (body.password) Object.assign(u, hashPassword(cleanPassword(body.password)));
+      saveUsers();
+      return send(res, 200, publicUser(u));
+    }
+    if (req.method === 'DELETE') {
+      if (u.id === me.id) throw badRequest('Não pode apagar o seu próprio utilizador');
+      users = users.filter((x) => x.id !== u.id);
+      saveUsers();
+      for (const [k, s] of sessions) if (s.userId === u.id) sessions.delete(k);
+      saveSessions();
+      return send(res, 200, { ok: true });
+    }
+    return send(res, 405, { error: 'Método não suportado' });
+  }
+
+  if (parts[1] === 'categories') {
+    const u = requireUser(req);
+    if (!id) {
+      // os utilizadores só veem os seus escalões, sem o plantel
+      if (req.method === 'GET') {
+        return send(res, 200, isAdmin(u) ? categories
+          : categories.filter((c) => u.categories.includes(c.id)).map(({ id: cid, name, teamName }) => ({ id: cid, name, teamName, players: [] })));
+      }
+      requireAdmin(req);
       if (req.method === 'POST') {
         const cat = cleanCategory(await readBody(req));
         categories.push(cat);
@@ -263,6 +441,7 @@ async function api(req, res, parts) {
       }
       return send(res, 405, { error: 'Método não suportado' });
     }
+    requireAdmin(req);
     const i = categories.findIndex((c) => c.id === id);
     if (i < 0) return send(res, 404, { error: 'Escalão não encontrado' });
     if (req.method === 'GET') return send(res, 200, categories[i]);
@@ -276,6 +455,8 @@ async function api(req, res, parts) {
       if (n) return send(res, 409, { error: `Este escalão tem ${n} jogo${n === 1 ? '' : 's'}. Apague-os primeiro ou mude-os de escalão.` });
       categories.splice(i, 1);
       saveCategories();
+      for (const u of users) u.categories = u.categories.filter((c) => c !== id);
+      saveUsers();
       return send(res, 200, { ok: true });
     }
     return send(res, 405, { error: 'Método não suportado' });
@@ -284,10 +465,12 @@ async function api(req, res, parts) {
 
   if (!id) {
     if (req.method === 'GET') {
-      const list = [...matches.values()].map(summary).sort((a, b) => b.createdAt - a.createdAt);
+      const u = requireUser(req);
+      const list = [...matches.values()].filter((m) => canAccess(u, m)).map(summary).sort((a, b) => b.createdAt - a.createdAt);
       return send(res, 200, list);
     }
     if (req.method === 'POST') {
+      requireAdmin(req);
       const body = await readBody(req);
       const cat = findCat(body.category);
       if (!cat) throw badRequest('Escolha o escalão do jogo');
@@ -299,6 +482,7 @@ async function api(req, res, parts) {
         date: str(body.date, 20),
         venue: str(body.venue, 80),
         category: cat.id,
+        pin: cleanPin(body.pin),
         config: cleanConfig(body.config),
         teams: { A: cleanTeam(body.teams?.A, 'Equipa A', { squad: true }), B: cleanTeam(body.teams?.B, 'Equipa B') },
         events: [],
@@ -318,10 +502,12 @@ async function api(req, res, parts) {
   if (!m) return send(res, 404, { error: 'Jogo não encontrado' });
 
   if (!sub) {
-    if (req.method === 'GET') return send(res, 200, publicMatch(m));
-    if (!authorized(req, m)) return send(res, 403, { error: 'Chave de marcador inválida' });
+    // dados do jogo: públicos (página do direto); o administrador vê também o PIN
+    if (req.method === 'GET') return send(res, 200, isAdmin(currentUser(req)) ? { ...publicMatch(m), pin: m.pin || '' } : publicMatch(m));
+    requireAdmin(req);
     if (req.method === 'PUT') {
       const body = await readBody(req);
+      if (body.pin !== undefined) m.pin = cleanPin(body.pin);
       if (body.title !== undefined) m.title = str(body.title, 80);
       if (body.venue !== undefined) m.venue = str(body.venue, 80);
       if (body.date !== undefined) m.date = str(body.date, 20);
@@ -383,9 +569,18 @@ async function api(req, res, parts) {
     return send(res, authorized(req, m) ? 200 : 403, { ok: authorized(req, m) });
   }
 
-  // só no computador do servidor: devolve a chave, para gerar o link de marcador para outros dispositivos
+  // utilizador com acesso ao jogo: devolve a chave (para gerar o link de marcador)
   if (sub === 'key' && req.method === 'GET') {
-    return isLocal(req) ? send(res, 200, { key: m.adminKey }) : send(res, 403, { error: 'Só disponível no computador do servidor' });
+    if (!canAccess(requireUser(req), m)) throw forbidden();
+    return send(res, 200, { key: m.adminKey });
+  }
+
+  // PIN do jogo: dá a chave de marcador deste jogo a um dispositivo sem login
+  if (sub === 'unlock' && req.method === 'POST') {
+    const { pin } = await readBody(req);
+    if (!m.pin) return send(res, 403, { error: 'Este jogo não tem PIN. Inicie sessão para marcar.' });
+    const ok = guardTries(req, 'pin', () => safeEqual(str(pin, 20), m.pin));
+    return ok ? send(res, 200, { key: m.adminKey }) : send(res, 403, { error: 'PIN errado' });
   }
 
   if (!authorized(req, m)) return send(res, 403, { error: 'Chave de marcador inválida' });

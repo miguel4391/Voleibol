@@ -20,8 +20,40 @@ export async function api(path, { method = 'GET', body, key } = {}) {
   if (key) headers['X-Admin-Key'] = key;
   const res = await fetch(`/api/${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `Erro ${res.status}`), { status: res.status });
   return data;
+}
+
+// ---------- sessão ----------
+let mePromise;
+/** Utilizador com sessão iniciada (ou null). */
+export const me = () => (mePromise ??= api('me').then((r) => r.user).catch(() => null));
+export const isAdmin = (u) => u?.role === 'admin';
+export const loginUrl = () => `/login.html?next=${encodeURIComponent(location.pathname + location.search)}`;
+
+/** Exige sessão iniciada: sem ela, vai para a página de login. Mostra o utilizador na barra do topo. */
+export async function requireLogin({ admin = false } = {}) {
+  const u = await me();
+  if (!u) { location.href = loginUrl(); return new Promise(() => {}); }
+  if (admin && !isAdmin(u)) { location.href = '/'; return new Promise(() => {}); }
+  userBar(u);
+  return u;
+}
+
+export function userBar(u) {
+  const bar = $('.topbar');
+  if (!bar || $('#userbar')) return;
+  const el = document.createElement('span');
+  el.id = 'userbar';
+  el.className = 'userbar';
+  el.innerHTML = `${isAdmin(u) ? '<a class="link" href="/users.html">Utilizadores</a>' : ''}
+    <a class="link small" href="/users.html#me" title="Mudar a password">${esc(u.name)}</a>
+    <button class="btn-sm" id="btn-logout">Sair</button>`;
+  bar.append(el);
+  $('#btn-logout').onclick = async () => {
+    await api('logout', { method: 'POST' }).catch(() => {});
+    location.href = '/login.html';
+  };
 }
 
 /** Subscreve atualizações em direto de um jogo. Reconecta automaticamente. */

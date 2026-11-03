@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Utilizadores — Estatísticas de Voleibol</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .cats-pick { display: grid; gap: .25rem; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); border: 1px solid var(--border); border-radius: 8px; padding: .5rem; }
+    .cats-pick label { display: flex; gap: .4rem; align-items: center; margin: 0; color: var(--text-primary); font-size: .9rem; }
+    .cats-pick input { width: auto; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="btn btn-sm home-link" href="/" title="Voltar à lista de jogos">← Jogos</a>
+    <b>Utilizadores</b>
+    <span class="spacer"></span>
+  </header>
+
+  <main class="wrap">
+    <section class="card hidden" id="users-card">
+      <div class="row" style="justify-content:space-between">
+        <h1>Utilizadores</h1>
+        <button class="btn-primary btn-sm" id="btn-new">+ Utilizador</button>
+      </div>
+      <p class="small muted">Os utilizadores veem e marcam os jogos dos escalões a que pertencem. Os administradores gerem tudo: jogos, PIN dos jogos, escalões e plantel, e utilizadores.</p>
+      <ul class="cat-list" id="list"></ul>
+    </section>
+
+    <section class="card hidden" id="form-card">
+      <h1 id="form-title">Novo utilizador</h1>
+      <form id="form" autocomplete="off">
+        <div class="grid2">
+          <div>
+            <label for="u-username">Utilizador (para entrar)</label>
+            <input id="u-username" autocapitalize="none" spellcheck="false" required placeholder="Ex.: joao.silva">
+          </div>
+          <div>
+            <label for="u-name">Nome</label>
+            <input id="u-name" placeholder="Ex.: João Silva">
+          </div>
+          <div>
+            <label for="u-password" id="u-password-lbl">Password</label>
+            <input id="u-password" type="password" autocomplete="new-password" minlength="6">
+          </div>
+          <div>
+            <label for="u-role">Tipo</label>
+            <select id="u-role">
+              <option value="user">Utilizador</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+        </div>
+        <div id="u-cats-wrap">
+          <label>Escalões a que pertence</label>
+          <div class="cats-pick" id="u-cats"></div>
+        </div>
+        <div class="row" style="margin-top:1rem">
+          <button class="btn-primary" type="submit" id="btn-save">Criar utilizador</button>
+          <button type="button" id="btn-cancel">Cancelar</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card" id="me">
+      <h1>A minha conta</h1>
+      <p class="small muted" id="me-info"></p>
+      <form id="pw-form" autocomplete="off">
+        <div class="grid2">
+          <div>
+            <label for="pw-cur">Password atual</label>
+            <input id="pw-cur" type="password" autocomplete="current-password" required>
+          </div>
+          <div>
+            <label for="pw-new">Nova password</label>
+            <input id="pw-new" type="password" autocomplete="new-password" minlength="6" required>
+          </div>
+        </div>
+        <button class="btn-primary" type="submit" style="margin-top:1rem">Mudar a password</button>
+      </form>
+    </section>
+  </main>
+
+  <script type="module" src="/js/users.js"></script>
+</body>
+</html>

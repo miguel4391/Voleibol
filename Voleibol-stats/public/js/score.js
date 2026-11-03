@@ -1,5 +1,5 @@
 import { SKILLS, ROLES, MAX_SUBS, ZONES, BACK_ROW, computeState, describeEvent, courtError, zoneOf, pname, nextActions } from './engine.js';
-import { $, esc, api, param, getKey, setKey, subscribe, toast, scoreboardHTML, feedHTML, courtHTML } from './common.js';
+import { $, esc, api, param, getKey, setKey, me, isAdmin, loginUrl, subscribe, toast, scoreboardHTML, feedHTML, courtHTML } from './common.js';
 
 const id = param('id');
 // o link de marcador traz a chave no fragmento (#k=...), que nunca é enviado ao servidor
@@ -20,18 +20,30 @@ const sel = { player: undefined, auto: false, hold: false }; // player: undefine
 let busy = false;
 let showAll = false; // mostrar todas as ações (situações fora do normal)
 
+// sem acesso: o PIN do jogo dá a chave de marcador deste jogo a este dispositivo
+$('#pin-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api(`matches/${id}/unlock`, { method: 'POST', body: { pin: $('#pin').value.trim() } });
+    setKey(id, r.key);
+    location.reload();
+  } catch (err) { toast(err.message); }
+};
+$('#lnk-login').href = loginUrl();
+
 async function init() {
   if (!id) { location.href = '/'; return; }
+  // acesso: sessão de um utilizador do escalão (ou administrador), ou a chave do jogo (link ou PIN)
+  const user = await me();
   try {
-    if (!key) { // no computador do servidor, obtém a chave automaticamente
-      key = (await api(`matches/${id}/key`)).key;
-      setKey(id, key);
-    }
     await api(`matches/${id}/check`, { key });
   } catch {
     $('#no-key').classList.remove('hidden');
+    $('#login-hint').classList.toggle('hidden', !!user);
+    $('#pin').focus();
     return;
   }
+  if (!isAdmin(user)) $('#lnk-edit').classList.add('hidden');
   $('#app').classList.remove('hidden');
   subscribe(id, (m) => { match = m; state = computeState(m); sel.hold = false; render(); }, (ok) => {
     $('#conn').textContent = ok ? '● ligado' : '● sem ligação';
@@ -323,6 +335,10 @@ async function copy(text, msg) {
   try { await navigator.clipboard.writeText(text); toast(msg); } catch { prompt('Copie o link:', text); }
 }
 $('#copy-live').onclick = () => copy(`${location.origin}/live.html?id=${id}`, 'Link do direto copiado');
-$('#copy-score').onclick = () => copy(`${location.origin}/score.html?id=${id}#k=${key}`, 'Link de marcador copiado');
+$('#copy-score').onclick = async () => {
+  // com sessão, a chave pede-se ao servidor; com link/PIN já está neste dispositivo
+  const k = key || (await api(`matches/${id}/key`).then((r) => r.key).catch((e) => { toast(e.message); return null; }));
+  if (k) copy(`${location.origin}/score.html?id=${id}#k=${k}`, 'Link de marcador copiado');
+};
 
 init();

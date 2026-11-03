@@ -98,7 +98,7 @@ export function wireSetCharts(root, match, state) {
   }
 }
 
-function setTarget(match, i) {
+export function setTarget(match, i) {
   const c = match.config;
   return i === c.bestOf - 1 ? c.decidingSetPoints : c.setPoints;
 }
@@ -108,7 +108,7 @@ const ID_COLS = [
   { k: 'number', h: '#', get: (p) => p.number },
   { k: 'name', h: 'Nome', get: (p) => `${p.name || '—'}${p.libero ? ' (L)' : ''}`, text: true },
 ];
-const TABLES = {
+export const TABLES = {
   rec: {
     title: 'Receção de serviço',
     sort: 'rTot',
@@ -163,7 +163,7 @@ const TABLES = {
   },
 };
 
-function playerTableHTML(id, rows, total, sortKey) {
+export function playerTableHTML(id, rows, total, sortKey) {
   const { cols } = TABLES[id];
   const col = cols.find((c) => c.k === sortKey) || cols[2];
   const sorted = [...rows].sort((a, b) => {
@@ -208,9 +208,9 @@ const ROLE_COLS = [
   { h: 'Def boa%', get: (l) => derived(l).digPositive, pct: true },
   { h: 'Assist', get: (l) => l.set.assist },
 ];
-const active = (l) => l.attack.tot + l.serve.tot + l.reception.tot + l.dig.tot + l.block.pts + l.block.touch + l.block.err + l.set.tot + l.faults > 0;
+export const active = (l) => l.attack.tot + l.serve.tot + l.reception.tot + l.dig.tot + l.block.pts + l.block.touch + l.block.err + l.set.tot + l.faults > 0;
 
-function roleTableHTML(byRole) {
+export function roleTableHTML(byRole) {
   const rows = ROLE_ORDER.filter((r) => active(byRole[r]));
   if (!rows.length) return '<p class="muted">Ainda sem ações registadas com jogador.</p>';
   const cell = (c, l) => {
@@ -225,7 +225,7 @@ function roleTableHTML(byRole) {
 }
 
 // ---------- componentes ----------
-function kpiHTML(label, value, sub, hint) {
+export function kpiHTML(label, value, sub, hint) {
   return `<div class="kpi" ${hint ? `title="${esc(hint)}"` : ''}>
     <div class="lbl">${label}</div>
     <div class="v">${value}</div>
@@ -237,7 +237,7 @@ function kpiHTML(label, value, sub, hint) {
  * Barras horizontais de uma só cor (magnitude). rows: {label, value, of?, note?}
  * `of` = total para mostrar a percentagem; sem `of` mostra só o valor.
  */
-function barsHTML(rows, team, { pctScale = false } = {}) {
+export function barsHTML(rows, team, { pctScale = false } = {}) {
   const max = pctScale ? 100 : Math.max(1, ...rows.map((r) => r.value ?? 0));
   return `<div class="bars">${rows.map((r) => {
     const v = r.value ?? 0;
@@ -252,7 +252,7 @@ function barsHTML(rows, team, { pctScale = false } = {}) {
   }).join('')}</div>`;
 }
 
-function highlightsHTML(stats) {
+export function highlightsHTML(stats) {
   const all = stats.players[US];
   const best = (fn, min = () => true) => {
     const c = all.filter(min).filter((p) => (fn(p) ?? 0) > 0);
@@ -461,4 +461,108 @@ export function createDashboard(root) {
       render();
     },
   };
+}
+
+// ---------- exportação para Excel ----------
+/** Indicadores da equipa, usados no Excel e no relatório: [rótulo, (equipa) => valor, é percentagem?] */
+export const TEAM_INDICATORS = [
+  ['Pontos ganhos', (t) => t.totalPoints],
+  ['Side-out (em receção)', (t) => pct(t.sideout.won, t.sideout.tot), true],
+  ['Break-point (no serviço)', (t) => pct(t.breakpoint.won, t.breakpoint.tot), true],
+  ['Receções', (t) => t.reception.tot],
+  ['Média de receção (0–3)', (t) => derived(t).recAvg],
+  ['Receção positiva', (t) => derived(t).recPositive, true],
+  ['Receção perfeita', (t) => derived(t).recPerfect, true],
+  ['Ases sofridos', (t) => t.reception.err],
+  ['Defesas', (t) => t.dig.tot],
+  ['Defesas boas', (t) => derived(t).digPositive, true],
+  ['Pontos de bloco', (t) => t.block.pts],
+  ['Toques de bloco', (t) => t.block.touch],
+  ['Ataques', (t) => t.attack.tot],
+  ['Pontos de ataque', (t) => t.attack.kill],
+  ['Erros de ataque', (t) => t.attack.err],
+  ['Ataques bloqueados', (t) => t.attack.blk],
+  ['Eficácia de ataque', (t) => derived(t).attackEff, true],
+  ['Serviços', (t) => t.serve.tot],
+  ['Ases', (t) => t.serve.ace],
+  ['Erros de serviço', (t) => t.serve.err],
+  ['Pontos de erros do adversário', (t) => t.from.oppError],
+  ['Pontos sofridos por erros nossos', (t) => t.conceded.ownError],
+  ['Descontos de tempo', (t) => t.timeouts],
+  ['Substituições', (t) => t.subs],
+];
+
+/** Folhas do livro Excel de um jogo (ver xlsx.js). */
+export function workbookSheets(match) {
+  const state = computeState(match);
+  const st = computeStats(match, state);
+  const T = st.teams[US];
+  const played = state.sets.map((s, i) => [s, i]).filter(([s]) => s.rallies.length);
+  const perSet = played.map(([, i]) => computeStats(match, state, i).teams[US]);
+  const H = (v) => ({ v, s: 1 });
+  const evs = match.events;
+  const duration = evs.length > 1 ? fmtDuration(evs.at(-1).t - evs[0].t) : '';
+  const val = (v, isPct) => (isPct ? { v, pct: true } : v);
+
+  const resumo = [
+    [{ v: `${match.teams.A.name} ${state.setsWon.A} – ${state.setsWon.B} ${match.teams.B.name}`, s: 2 }],
+    [],
+    ['Escalão', match.categoryName || ''],
+    ['Competição', match.title || ''],
+    ['Data', match.date || ''],
+    ['Local', match.venue || ''],
+    ['Duração', duration],
+    ['Resultado', state.finished ? (state.winner === US ? 'Vitória' : 'Derrota') : 'Em curso'],
+    [],
+    [H('Set'), H(match.teams.A.name), H(match.teams.B.name)],
+    ...played.map(([s, i]) => [`Set ${i + 1}`, s.A, s.B]),
+    [],
+    [H('Indicador'), H('Jogo'), ...played.map(([, i]) => H(`Set ${i + 1}`))],
+    ...TEAM_INDICATORS.map(([l, get, p]) => [l, val(get(T), p), ...perSet.map((t) => val(get(t), p))]),
+  ];
+
+  const sorted = [...st.players[US]].sort((a, b) => a.number - b.number);
+  const playerSheet = (id) => {
+    const { title, cols } = TABLES[id];
+    const cell = (c, p) => val(c.get(p), c.pct);
+    return {
+      name: title,
+      freeze: 1,
+      widths: cols.map((c) => (c.k === 'name' ? 24 : c.k === 'number' ? 5 : 11)),
+      rows: [
+        cols.map((c) => H(c.title ? `${c.h} (${c.title})` : c.h)),
+        ...sorted.map((p) => cols.map((c) => (c.k === 'name' ? `${p.name || ''}${p.libero ? ' (L)' : ''}` : cell(c, p)))),
+        cols.map((c, i) => (i === 0 ? { v: '', s: 4 } : i === 1 ? { v: 'Equipa', s: 4 } : { v: c.get(T), s: c.pct ? 3 : 4 })),
+      ],
+    };
+  };
+
+  const roles = ROLE_ORDER.filter((r) => active(T.byRole[r]));
+  const jogadas = state.events.map((ev) => [
+    ev.set != null ? ev.set + 1 : '',
+    ev.score ? `${ev.score.A}-${ev.score.B}` : '',
+    ev.pointTo ? match.teams[ev.pointTo].name : '',
+    describeEvent(ev, match),
+    ev.t ? new Date(ev.t).toLocaleTimeString('pt-PT') : '',
+  ]);
+
+  return [
+    { name: 'Resumo', rows: resumo, widths: [34, 14, 14, ...played.map(() => 10)] },
+    playerSheet('rec'),
+    playerSheet('def'),
+    playerSheet('atk'),
+    {
+      name: 'Por posição',
+      freeze: 1,
+      widths: [16, ...ROLE_COLS.map(() => 10)],
+      rows: [[H('Posição'), ...ROLE_COLS.map((c) => H(c.h))],
+        ...roles.map((r) => [r === '?' ? 'Sem posição' : ROLES[r], ...ROLE_COLS.map((c) => val(c.get(T.byRole[r]), c.pct))])],
+    },
+    {
+      name: 'Jogada a jogada',
+      freeze: 1,
+      widths: [6, 10, 22, 70, 10],
+      rows: [[H('Set'), H('Marcador'), H('Ponto para'), H('Jogada'), H('Hora')], ...jogadas],
+    },
+  ];
 }
