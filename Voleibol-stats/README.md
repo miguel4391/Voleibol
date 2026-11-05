@@ -56,7 +56,7 @@ A aplicação exige **login** (página `/login.html`). Há dois tipos de conta:
 
 **PIN do jogo (marcar sem conta):** ao criar ou editar um jogo, o administrador pode definir um PIN de 4 a 8 algarismos. Num tablet ou telemóvel sem sessão, o botão **Marcar** pede esse PIN, que só é preciso uma vez nesse dispositivo. O PIN só dá acesso ao marcador desse jogo. Sem PIN definido, só marcam o administrador e os utilizadores do escalão.
 
-**Link de marcador:** no marcador, “Copiar link de marcador” gera um link que permite marcar esse jogo sem conta nem PIN. Partilhe-o só com quem vai marcar.
+**Link de marcador:** no marcador, “Copiar link de marcador” copia o link do marcador desse jogo. O link não dá acesso por si: quem o abrir sem sessão tem de introduzir o PIN do jogo. Se o administrador mudar o PIN, os dispositivos já desbloqueados voltam a ter de o introduzir.
 
 **Direto:** o link do direto é público e só permite ver. Inclui também as estatísticas do jogo, que aparecem quando o jogo termina.
 

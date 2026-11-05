@@ -2,13 +2,9 @@ import { SKILLS, ROLES, MAX_SUBS, ZONES, BACK_ROW, computeState, describeEvent, 
 import { $, esc, api, param, getKey, setKey, me, isAdmin, loginUrl, subscribe, toast, scoreboardHTML, feedHTML, courtHTML } from './common.js';
 
 const id = param('id');
-// o link de marcador traz a chave no fragmento (#k=...), que nunca é enviado ao servidor
-const hashKey = new URLSearchParams(location.hash.slice(1)).get('k');
-if (hashKey) {
-  setKey(id, hashKey);
-  history.replaceState(null, '', location.pathname + location.search);
-}
-let key = getKey(id);
+// links antigos traziam a chave no fragmento (#k=...): já não dá acesso, o PIN é obrigatório
+if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+const key = getKey(id);
 
 for (const a of ['#lnk-live', '#lnk-live2']) $(a).href = `/live.html?id=${id}`;
 $('#lnk-dash').href = `/dashboard.html?id=${id}`;
@@ -335,10 +331,8 @@ async function copy(text, msg) {
   try { await navigator.clipboard.writeText(text); toast(msg); } catch { prompt('Copie o link:', text); }
 }
 $('#copy-live').onclick = () => copy(`${location.origin}/live.html?id=${id}`, 'Link do direto copiado');
-$('#copy-score').onclick = async () => {
-  // com sessão, a chave pede-se ao servidor; com link/PIN já está neste dispositivo
-  const k = key || (await api(`matches/${id}/key`).then((r) => r.key).catch((e) => { toast(e.message); return null; }));
-  if (k) copy(`${location.origin}/score.html?id=${id}#k=${k}`, 'Link de marcador copiado');
-};
+// o link de marcador não dá acesso por si: quem o abre sem sessão tem de introduzir o PIN do jogo
+$('#copy-score').onclick = () => copy(`${location.origin}/score.html?id=${id}`,
+  match?.hasPin === false ? 'Link copiado — este jogo não tem PIN: só marcam utilizadores com sessão' : 'Link de marcador copiado (pede o PIN do jogo)');
 
 init();

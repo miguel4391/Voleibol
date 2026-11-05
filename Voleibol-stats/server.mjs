@@ -98,7 +98,7 @@ setInterval(() => {
 }, 25000).unref();
 
 // ---------- Helpers ----------
-const publicMatch = ({ adminKey, pin, ...rest }) => ({ ...rest, categoryName: findCat(rest.category)?.name || '' });
+const publicMatch = ({ adminKey, pin, ...rest }) => ({ ...rest, hasPin: !!pin, categoryName: findCat(rest.category)?.name || '' });
 
 function summary(m) {
   const s = computeState(m);
@@ -507,7 +507,12 @@ async function api(req, res, parts) {
     requireAdmin(req);
     if (req.method === 'PUT') {
       const body = await readBody(req);
-      if (body.pin !== undefined) m.pin = cleanPin(body.pin);
+      if (body.pin !== undefined) {
+        const pin = cleanPin(body.pin);
+        // PIN novo: renova a chave, para que os dispositivos já desbloqueados tenham de introduzir o novo PIN
+        if (pin !== (m.pin || '')) m.adminKey = crypto.randomBytes(16).toString('hex');
+        m.pin = pin;
+      }
       if (body.title !== undefined) m.title = str(body.title, 80);
       if (body.venue !== undefined) m.venue = str(body.venue, 80);
       if (body.date !== undefined) m.date = str(body.date, 20);
@@ -567,12 +572,6 @@ async function api(req, res, parts) {
 
   if (sub === 'check' && req.method === 'GET') {
     return send(res, authorized(req, m) ? 200 : 403, { ok: authorized(req, m) });
-  }
-
-  // utilizador com acesso ao jogo: devolve a chave (para gerar o link de marcador)
-  if (sub === 'key' && req.method === 'GET') {
-    if (!canAccess(requireUser(req), m)) throw forbidden();
-    return send(res, 200, { key: m.adminKey });
   }
 
   // PIN do jogo: dá a chave de marcador deste jogo a um dispositivo sem login
