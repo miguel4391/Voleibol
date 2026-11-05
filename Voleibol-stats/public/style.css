@@ -201,6 +201,8 @@ dialog h2 { margin-bottom: .75rem; }
 .squad-row input { width: auto; }
 .squad-row .lib { font-size: .8rem; color: var(--text-secondary); display: inline-flex; gap: .3rem; align-items: center; }
 .squad-count { font-size: .85rem; margin: .4rem 0; }
+.squad-head { margin-bottom: .4rem; }
+.squad-head .btn-sm { padding: .15rem .55rem; font-size: .8rem; }
 .squad-count .bad { color: var(--bad); font-weight: 700; }
 
 .skills { display: grid; gap: .45rem; }
