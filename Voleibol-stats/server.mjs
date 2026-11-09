@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { computeState, validateEvent, defaultConfig, ROLES, MAX_PLAYERS, MAX_LIBEROS } from './public/js/engine.js';
+import { createStorage } from './storage.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -30,10 +31,18 @@ const MIME = {
 };
 
 // ---------- Persistência ----------
+// Com as variáveis UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN, os dados ficam no Upstash;
+// sem elas, em ficheiros JSON na pasta de dados.
+const storage = createStorage({ dataDir: DATA, url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
+const BEHIND_PROXY = !!(process.env.RENDER || process.env.TRUST_PROXY); // a correr atrás de um proxy (ex.: Render)
+if (process.env.RENDER && storage.files) {
+  console.warn('Atenção: no Render os ficheiros perdem-se a cada reinício. Defina UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN.');
+}
+
 const jsonFiles = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.json')) : []);
 
 // migração: dados antigos em ./data passam para a pasta de dados (uma única vez)
-if (DATA !== OLD_DATA && jsonFiles(OLD_DATA).length) {
+if (storage.files && DATA !== OLD_DATA && jsonFiles(OLD_DATA).length) {
   if (!jsonFiles(DATA).length) {
     fs.mkdirSync(DATA, { recursive: true });
     for (const f of jsonFiles(OLD_DATA)) fs.copyFileSync(path.join(OLD_DATA, f), path.join(DATA, f));
@@ -46,43 +55,46 @@ if (DATA !== OLD_DATA && jsonFiles(OLD_DATA).length) {
     console.warn(`Atenção: há dados antigos em ${OLD_DATA} que NÃO foram usados, porque ${DATA} já tem dados.`);
   }
 }
-fs.mkdirSync(DATA, { recursive: true });
 const matches = new Map();
-for (const f of fs.readdirSync(DATA)) {
-  if (!f.endsWith('.json') || f.startsWith('_')) continue; // _escaloes.json = escalões e planteis
-  try {
-    const m = JSON.parse(fs.readFileSync(path.join(DATA, f), 'utf8'));
-    // v2: “Ataque bloqueado” deixou de dar ponto direto; nos jogos antigos acrescenta-se
-    // a defesa ao bloco falhada (sem toque) para manter os resultados registados
-    if ((m.v || 1) < 2) {
-      const evs = [];
-      for (const ev of m.events) {
-        evs.push(ev);
-        if (ev.type === 'action' && ev.skill === 'attack' && ev.result === 'blocked') {
-          evs.push({ type: 'action', team: ev.team, skill: 'dig', result: 'error', player: null, id: ++m.seq, t: ev.t });
-        }
+for (const m of await storage.listMatches()) {
+  // v2: “Ataque bloqueado” deixou de dar ponto direto; nos jogos antigos acrescenta-se
+  // a defesa ao bloco falhada (sem toque) para manter os resultados registados
+  if ((m.v || 1) < 2) {
+    const evs = [];
+    for (const ev of m.events) {
+      evs.push(ev);
+      if (ev.type === 'action' && ev.skill === 'attack' && ev.result === 'blocked') {
+        evs.push({ type: 'action', team: ev.team, skill: 'dig', result: 'error', player: null, id: ++m.seq, t: ev.t });
       }
-      m.events = evs;
-      m.v = 2;
-      fs.writeFileSync(path.join(DATA, f), JSON.stringify(m));
     }
-    matches.set(m.id, m);
-  } catch (e) {
-    console.error('Ficheiro de jogo inválido:', f, e.message);
+    m.events = evs;
+    m.v = 2;
+    storage.writeMatch(m);
   }
+  matches.set(m.id, m);
 }
 
 const pendingWrites = new Map();
 function save(m) {
-  // escrita atómica, agregada para não escrever a cada clique em rajada
+  // agregada, para não gravar a cada clique em rajada
   clearTimeout(pendingWrites.get(m.id));
-  pendingWrites.set(m.id, setTimeout(async () => {
+  pendingWrites.set(m.id, setTimeout(() => {
     pendingWrites.delete(m.id);
-    const file = path.join(DATA, `${m.id}.json`);
-    const tmp = `${file}.tmp`;
-    await fsp.writeFile(tmp, JSON.stringify(m));
-    await fsp.rename(tmp, file);
+    storage.writeMatch(m);
   }, 150));
+}
+
+// ao desligar (ex.: o Render adormece ou reinicia o servidor), grava o que ainda está pendente
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.once(sig, async () => {
+    for (const [mid, t] of pendingWrites) {
+      clearTimeout(t);
+      if (matches.has(mid)) storage.writeMatch(matches.get(mid));
+    }
+    pendingWrites.clear();
+    await storage.flush();
+    process.exit(0);
+  });
 }
 
 // ---------- Subscritores em direto (SSE) ----------
@@ -145,10 +157,13 @@ const safeEqual = (x, y) => {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 
+// atrás de um proxy, o IP do dispositivo vem no cabeçalho X-Forwarded-For (senão todos teriam o IP do proxy)
+const clientIp = (req) => (BEHIND_PROXY && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress;
+
 // limita tentativas erradas (login e PIN) por IP: 5 falhas bloqueiam durante 5 minutos
 const fails = new Map();
 function guardTries(req, kind, ok) {
-  const k = `${kind}:${req.socket.remoteAddress}`;
+  const k = `${kind}:${clientIp(req)}`;
   const now = Date.now();
   const f = fails.get(k) || { n: 0, until: 0 };
   if (f.until > now) throw Object.assign(new Error('Demasiadas tentativas. Tente daqui a alguns minutos.'), { status: 429 });
@@ -164,13 +179,9 @@ function guardTries(req, kind, ok) {
 // ---------- Utilizadores e sessões ----------
 // admin: gere tudo (jogos, PIN dos jogos, escalões/plantel, utilizadores).
 // user: vê e marca os jogos dos escalões a que pertence.
-const USERS_FILE = path.join(DATA, '_utilizadores.json');
-const SESSIONS_FILE = path.join(DATA, '_sessoes.json');
 const SESSION_DAYS = 30;
-let users = [];
-try { users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch { /* ainda não existe */ }
-const writeJson = (file, data) => { fs.writeFileSync(`${file}.tmp`, JSON.stringify(data)); fs.renameSync(`${file}.tmp`, file); };
-const saveUsers = () => writeJson(USERS_FILE, users);
+let users = (await storage.readDoc('utilizadores')) || [];
+const saveUsers = () => storage.writeDoc('utilizadores', users);
 
 const hashPassword = (pw) => {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -179,16 +190,17 @@ const hashPassword = (pw) => {
 const checkPassword = (u, pw) => safeEqual(crypto.scryptSync(String(pw), u.salt, 64).toString('hex'), u.hash);
 
 // primeiro arranque (ou sem nenhum administrador): cria o administrador por omissão
+// (num servidor público, defina ADMIN_PASSWORD para não usar a password que está no código)
 if (!users.some((u) => u.role === 'admin')) {
-  users.push({ id: crypto.randomBytes(4).toString('hex'), username: 'admin', name: 'Administrador', role: 'admin', categories: [], ...hashPassword('Ac@mOwner') });
+  users.push({ id: crypto.randomBytes(4).toString('hex'), username: 'admin', name: 'Administrador', role: 'admin', categories: [], ...hashPassword(process.env.ADMIN_PASSWORD || 'Ac@mOwner') });
   saveUsers();
   console.log('Criado o utilizador administrador “admin”.');
 }
 
 // sessões: guarda-se só o hash do token, que fica num cookie HttpOnly
 const sessions = new Map(); // sha256(token) -> { userId, exp }
-try { for (const [k, v] of JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'))) if (v.exp > Date.now()) sessions.set(k, v); } catch { /* sem sessões */ }
-const saveSessions = () => writeJson(SESSIONS_FILE, [...sessions]);
+for (const [k, v] of (await storage.readDoc('sessoes')) || []) if (v.exp > Date.now()) sessions.set(k, v);
+const saveSessions = () => storage.writeDoc('sessoes', [...sessions]);
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
 function sessionToken(req) {
@@ -202,8 +214,9 @@ function currentUser(req) {
   req.user = s && s.exp > Date.now() ? users.find((u) => u.id === s.userId) || null : null;
   return req.user;
 }
-const sessionCookie = (token, maxAge) =>
-  `vb_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+// em HTTPS (atrás do proxy), o cookie só é enviado por ligações seguras
+const sessionCookie = (req, token, maxAge) =>
+  `vb_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${BEHIND_PROXY && req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`;
 
 const publicUser = ({ salt, hash, ...u }) => u;
 const isAdmin = (u) => u?.role === 'admin';
@@ -278,15 +291,9 @@ function cleanTeam(t, fallback, { squad = false } = {}) {
 }
 
 // ---------- Escalões (cada um com o seu plantel) ----------
-const CATS_FILE = path.join(DATA, '_escaloes.json');
 const OLD_TEAM_FILE = path.join(DATA, '_team.json'); // versão antiga: um único plantel
-let categories = [];
-try { categories = JSON.parse(fs.readFileSync(CATS_FILE, 'utf8')); } catch { /* ainda não existe */ }
-
-function saveCategories() {
-  fs.writeFileSync(`${CATS_FILE}.tmp`, JSON.stringify(categories));
-  fs.renameSync(`${CATS_FILE}.tmp`, CATS_FILE);
-}
+let categories = (await storage.readDoc('escaloes')) || [];
+const saveCategories = () => storage.writeDoc('escaloes', categories);
 
 const newId = () => crypto.randomBytes(4).toString('hex');
 const findCat = (id) => categories.find((c) => c.id === id);
@@ -308,15 +315,16 @@ function mergeIntoCategory(cat, squad) {
 }
 
 // migração: o plantel único (_team.json) passa a ser o primeiro escalão, com todos os jogos existentes
-if (!categories.length && (fs.existsSync(OLD_TEAM_FILE) || matches.size)) {
+const hasOldTeam = storage.files && fs.existsSync(OLD_TEAM_FILE);
+if (!categories.length && (hasOldTeam || matches.size)) {
   let old = { name: '', players: [] };
-  try { old = JSON.parse(fs.readFileSync(OLD_TEAM_FILE, 'utf8')); } catch { /* sem plantel antigo */ }
+  try { if (hasOldTeam) old = JSON.parse(fs.readFileSync(OLD_TEAM_FILE, 'utf8')); } catch { /* sem plantel antigo */ }
   const cat = { id: newId(), name: 'Principal', teamName: old.name || '', players: old.players || [] };
   categories.push(cat);
   const recent = [...matches.values()].sort((a, b) => b.createdAt - a.createdAt)[0];
   if (recent) mergeIntoCategory(cat, recent.teams.A);
   saveCategories();
-  if (fs.existsSync(OLD_TEAM_FILE)) fs.renameSync(OLD_TEAM_FILE, `${OLD_TEAM_FILE}.bak`);
+  if (hasOldTeam) fs.renameSync(OLD_TEAM_FILE, `${OLD_TEAM_FILE}.bak`);
   console.log(`Plantel convertido no escalão “${cat.name}”`);
 }
 // jogos sem escalão (antigos) ficam no primeiro escalão
@@ -324,7 +332,7 @@ for (const m of matches.values()) {
   if (!m.category || !findCat(m.category)) {
     if (!categories.length) break;
     m.category = categories[0].id;
-    fs.writeFileSync(path.join(DATA, `${m.id}.json`), JSON.stringify(m));
+    storage.writeMatch(m);
   }
 }
 
@@ -365,12 +373,12 @@ async function api(req, res, parts) {
     sessions.set(sha(token), { userId: u.id, exp: Date.now() + SESSION_DAYS * 86_400_000 });
     for (const [k, s] of sessions) if (s.exp <= Date.now()) sessions.delete(k);
     saveSessions();
-    return send(res, 200, publicUser(u), { 'Set-Cookie': sessionCookie(token, SESSION_DAYS * 86_400) });
+    return send(res, 200, publicUser(u), { 'Set-Cookie': sessionCookie(req, token, SESSION_DAYS * 86_400) });
   }
   if (parts[1] === 'logout' && req.method === 'POST') {
     const t = sessionToken(req);
     if (t && sessions.delete(sha(t))) saveSessions();
-    return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie('', 0) });
+    return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(req, '', 0) });
   }
   if (parts[1] === 'me') {
     const u = currentUser(req);
@@ -550,7 +558,8 @@ async function api(req, res, parts) {
     if (req.method === 'DELETE') {
       matches.delete(id);
       clearTimeout(pendingWrites.get(id));
-      await fsp.rm(path.join(DATA, `${id}.json`), { force: true });
+      pendingWrites.delete(id);
+      await storage.deleteMatch(id);
       return send(res, 200, { ok: true });
     }
     return send(res, 405, { error: 'Método não suportado' });
@@ -671,5 +680,5 @@ server.listen(PORT, HOST, () => {
       if (n.family === 'IPv4' && !n.internal) console.log(`   Na rede local (telemóvel): http://${n.address}:${PORT}`);
     }
   }
-  console.log(`\n   Dados (escalões e jogos): ${DATA}\n`);
+  console.log(`\n   Dados (escalões e jogos): ${storage.kind}\n`);
 });

@@ -172,4 +172,34 @@ Nas versões antigas os dados ficavam em `data/`, dentro da aplicação. Na prim
 
 Para usar outra pasta de dados, defina `DATA_DIR` (por exemplo, em PowerShell: `$env:DATA_DIR='D:\Voleibol'; npm start`). Para mudar a porta, defina `PORT`.
 
-Para acesso fora da rede local, publique num serviço que corra Node.js (por exemplo Render, Railway ou Fly.io, ou um VPS) com um disco persistente para a pasta de dados (`DATA_DIR`). O servidor usa Server-Sent Events, por isso um proxy à frente não pode guardar as respostas em buffer.
+Para acesso fora da rede local, publique num serviço que corra Node.js (por exemplo Render, Railway ou Fly.io, ou um VPS) com um disco persistente para a pasta de dados (`DATA_DIR`), ou guarde os dados no Upstash (ver abaixo). O servidor usa Server-Sent Events, por isso um proxy à frente não pode guardar as respostas em buffer.
+
+## Pôr online (Render + Upstash)
+
+O plano gratuito do Render não tem disco permanente: os ficheiros perdem-se sempre que o servidor reinicia ou adormece. Por isso, online, os dados ficam numa base de dados Redis gratuita no [Upstash](https://upstash.com). Quando as variáveis `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN` estão definidas, o servidor usa o Upstash; sem elas, usa a pasta `Voleibol-dados` como até aqui.
+
+**1. Criar a base de dados no Upstash**
+1. Crie uma conta e uma base de dados **Redis**, numa região na Europa (por exemplo Frankfurt).
+2. Na secção **REST API** da base de dados, copie `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`. O token dá acesso total aos dados: não o ponha no código nem no GitHub.
+
+**2. Copiar os dados atuais para o Upstash** (uma única vez, neste computador, em PowerShell, na pasta da aplicação):
+
+```powershell
+$env:UPSTASH_REDIS_REST_URL='https://...upstash.io'
+$env:UPSTASH_REDIS_REST_TOKEN='...'
+npm run importar
+```
+
+Copia escalões, utilizadores, sessões e jogos de `Voleibol-dados`. Se o Upstash já tiver dados, recusa; para os substituir pelos locais, use `npm run importar -- --substituir`.
+
+**3. Criar o serviço no Render**
+1. **New → Web Service**, e ligue o repositório do GitHub.
+2. **Root Directory:** `Voleibol-stats` · **Build Command:** `npm install` · **Start Command:** `npm start` · **Instance Type:** Free.
+3. Em **Environment**, acrescente `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`. Se o Upstash ainda não tiver utilizadores, acrescente também `ADMIN_PASSWORD`: é a password do `admin` criado no primeiro arranque (sem ela, é a password por omissão, que está no código público).
+
+A cada `git push` para o GitHub, o Render publica a versão nova sozinho.
+
+**Notas**
+- No plano gratuito, o servidor adormece ao fim de algum tempo sem visitas e demora cerca de um minuto a acordar. Abra o site uns minutos antes do jogo.
+- Atrás do proxy do Render, o servidor usa o IP do dispositivo (cabeçalho `X-Forwarded-For`) para limitar as tentativas erradas, e o cookie de sessão só segue por HTTPS. Noutro serviço com proxy, defina `TRUST_PROXY=1` para o mesmo efeito.
+- Com o Upstash, os dados online deixam de estar na pasta `Voleibol-dados`. A partir daí, o servidor local e o online não partilham os dados.
