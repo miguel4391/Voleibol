@@ -183,6 +183,19 @@ const SESSION_DAYS = 30;
 let users = (await storage.readDoc('utilizadores')) || [];
 const saveUsers = () => storage.writeDoc('utilizadores', users);
 
+/**
+ * Grava e espera pela confirmação. Se a gravação falhar, repõe o estado anterior (`restore`) e responde
+ * com erro, em vez de mostrar uma alteração que se perderia no reinício seguinte.
+ */
+async function commit(write, restore) {
+  try {
+    await write();
+  } catch (e) {
+    restore();
+    throw Object.assign(new Error(`Não foi possível gravar os dados (${e.message}). A alteração não foi guardada.`), { status: 503 });
+  }
+}
+
 const hashPassword = (pw) => {
   const salt = crypto.randomBytes(16).toString('hex');
   return { salt, hash: crypto.scryptSync(String(pw), salt, 64).toString('hex') };
@@ -388,11 +401,23 @@ async function api(req, res, parts) {
       requireUser(req);
       const body = await readBody(req);
       if (!checkPassword(u, String(body.current ?? ''))) return send(res, 400, { error: 'A password atual está errada' });
+      const before = structuredClone(users);
       Object.assign(u, hashPassword(cleanPassword(body.password)));
-      saveUsers();
+      await commit(saveUsers, () => { users = before; });
       return send(res, 200, { ok: true });
     }
     return send(res, 405, { error: 'Método não suportado' });
+  }
+
+  // ----- onde estão os dados (só administrador): para perceber se sobrevivem a um reinício -----
+  if (parts[1] === 'status' && req.method === 'GET') {
+    requireAdmin(req);
+    return send(res, 200, {
+      storage: storage.kind,
+      persistent: !(process.env.RENDER && storage.files), // no Render gratuito os ficheiros perdem-se
+      failures: storage.failures,
+      lastError: storage.lastError,
+    });
   }
 
   // ----- utilizadores (só administrador) -----
@@ -403,8 +428,9 @@ async function api(req, res, parts) {
       if (req.method === 'POST') {
         const body = await readBody(req);
         const u = { id: newId(), ...cleanUser(body), ...hashPassword(cleanPassword(body.password)) };
+        const before = structuredClone(users);
         users.push(u);
-        saveUsers();
+        await commit(saveUsers, () => { users = before; });
         return send(res, 201, publicUser(u));
       }
       return send(res, 405, { error: 'Método não suportado' });
@@ -416,15 +442,17 @@ async function api(req, res, parts) {
       const body = await readBody(req);
       const next = cleanUser(body, u);
       if (u.role === 'admin' && next.role !== 'admin' && !otherAdmins) throw badRequest('Tem de existir pelo menos um administrador');
+      const before = structuredClone(users);
       Object.assign(u, next);
       if (body.password) Object.assign(u, hashPassword(cleanPassword(body.password)));
-      saveUsers();
+      await commit(saveUsers, () => { users = before; });
       return send(res, 200, publicUser(u));
     }
     if (req.method === 'DELETE') {
       if (u.id === me.id) throw badRequest('Não pode apagar o seu próprio utilizador');
+      const before = users;
       users = users.filter((x) => x.id !== u.id);
-      saveUsers();
+      await commit(saveUsers, () => { users = before; });
       for (const [k, s] of sessions) if (s.userId === u.id) sessions.delete(k);
       saveSessions();
       return send(res, 200, { ok: true });
@@ -435,16 +463,16 @@ async function api(req, res, parts) {
   if (parts[1] === 'categories') {
     const u = requireUser(req);
     if (!id) {
-      // os utilizadores só veem os seus escalões, sem o plantel
+      // os utilizadores só veem os seus escalões (o plantel só para consulta, para escolher a convocatória)
       if (req.method === 'GET') {
-        return send(res, 200, isAdmin(u) ? categories
-          : categories.filter((c) => u.categories.includes(c.id)).map(({ id: cid, name, teamName }) => ({ id: cid, name, teamName, players: [] })));
+        return send(res, 200, isAdmin(u) ? categories : categories.filter((c) => u.categories.includes(c.id)));
       }
       requireAdmin(req);
       if (req.method === 'POST') {
         const cat = cleanCategory(await readBody(req));
+        const before = structuredClone(categories);
         categories.push(cat);
-        saveCategories();
+        await commit(saveCategories, () => { categories = before; });
         return send(res, 201, cat);
       }
       return send(res, 405, { error: 'Método não suportado' });
@@ -454,15 +482,18 @@ async function api(req, res, parts) {
     if (i < 0) return send(res, 404, { error: 'Escalão não encontrado' });
     if (req.method === 'GET') return send(res, 200, categories[i]);
     if (req.method === 'PUT') {
-      categories[i] = cleanCategory(await readBody(req), categories[i]);
-      saveCategories();
+      const next = cleanCategory(await readBody(req), categories[i]);
+      const before = structuredClone(categories);
+      categories[i] = next;
+      await commit(saveCategories, () => { categories = before; });
       return send(res, 200, categories[i]);
     }
     if (req.method === 'DELETE') {
       const n = [...matches.values()].filter((m) => m.category === id).length;
       if (n) return send(res, 409, { error: `Este escalão tem ${n} jogo${n === 1 ? '' : 's'}. Apague-os primeiro ou mude-os de escalão.` });
+      const before = structuredClone(categories);
       categories.splice(i, 1);
-      saveCategories();
+      await commit(saveCategories, () => { categories = before; });
       for (const u of users) u.categories = u.categories.filter((c) => c !== id);
       saveUsers();
       return send(res, 200, { ok: true });
@@ -478,10 +509,12 @@ async function api(req, res, parts) {
       return send(res, 200, list);
     }
     if (req.method === 'POST') {
-      requireAdmin(req);
+      // administrador: qualquer escalão; utilizador: só os escalões a que pertence
+      const u = requireUser(req);
       const body = await readBody(req);
       const cat = findCat(body.category);
       if (!cat) throw badRequest('Escolha o escalão do jogo');
+      if (!isAdmin(u) && !u.categories.includes(cat.id)) throw forbidden('Só pode criar jogos dos escalões a que pertence');
       const m = {
         id: crypto.randomBytes(5).toString('hex'),
         adminKey: crypto.randomBytes(16).toString('hex'),
@@ -510,9 +543,11 @@ async function api(req, res, parts) {
   if (!m) return send(res, 404, { error: 'Jogo não encontrado' });
 
   if (!sub) {
-    // dados do jogo: públicos (página do direto); o administrador vê também o PIN
-    if (req.method === 'GET') return send(res, 200, isAdmin(currentUser(req)) ? { ...publicMatch(m), pin: m.pin || '' } : publicMatch(m));
-    requireAdmin(req);
+    // dados do jogo: públicos (página do direto); quem gere o jogo vê também o PIN
+    if (req.method === 'GET') return send(res, 200, canAccess(currentUser(req), m) ? { ...publicMatch(m), pin: m.pin || '' } : publicMatch(m));
+    // editar e apagar: administrador, ou utilizador do escalão do jogo
+    const u = requireUser(req);
+    if (!canAccess(u, m)) throw forbidden('Este jogo é de um escalão a que não pertence');
     if (req.method === 'PUT') {
       const body = await readBody(req);
       if (body.pin !== undefined) {
@@ -526,6 +561,7 @@ async function api(req, res, parts) {
       if (body.date !== undefined) m.date = str(body.date, 20);
       if (body.category !== undefined && body.category !== m.category) {
         if (!findCat(body.category)) throw badRequest('Escalão desconhecido');
+        if (!isAdmin(u) && !u.categories.includes(body.category)) throw forbidden('Só pode usar os escalões a que pertence');
         if (m.events.length) throw badRequest('O jogo já começou: o escalão já não pode ser alterado');
         m.category = body.category;
       }
@@ -556,6 +592,8 @@ async function api(req, res, parts) {
       return send(res, 200, publicMatch(m));
     }
     if (req.method === 'DELETE') {
+      // um utilizador só apaga jogos ainda sem jogadas registadas (enganos ao criar)
+      if (!isAdmin(u) && m.events.length) throw forbidden('O jogo já tem jogadas registadas: só o administrador o pode apagar');
       matches.delete(id);
       clearTimeout(pendingWrites.get(id));
       pendingWrites.delete(id);

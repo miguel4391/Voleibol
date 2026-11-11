@@ -31,7 +31,7 @@ Em todas as páginas, o botão **← Jogos** (canto superior esquerdo) volta à 
 
 ### Editar e apagar jogos
 
-Na lista de jogos, os botões **Editar** e **Apagar** só aparecem ao administrador. No marcador, o administrador também tem o link **Editar** no topo.
+Na lista de jogos aparecem os botões **Editar** e **Apagar**. O administrador pode editar e apagar qualquer jogo. Um utilizador edita os jogos dos seus escalões e só apaga os que ainda não têm jogadas registadas. No marcador, quem pode editar o jogo também tem o link **Editar** no topo.
 
 - **Editar:** permite mudar escalão (só antes do primeiro evento), descrição, data, local, adversário e convocados. O formato (sets e pontos) só se pode mudar antes do primeiro evento. Jogadores que já têm jogadas registadas não podem sair da convocatória nem mudar o estatuto de líbero.
 - **Apagar:** pede confirmação e remove o jogo e todas as estatísticas. Não pode ser desfeito.
@@ -43,7 +43,8 @@ A aplicação exige **login** (página `/login.html`). Há dois tipos de conta:
 | | Administrador | Utilizador |
 |---|---|---|
 | Ver a lista de jogos, marcar e ver o dashboard | todos os jogos | só os jogos dos seus escalões |
-| Criar, editar e apagar jogos, e definir o PIN de cada jogo | sim | não |
+| Criar e editar jogos, e definir o PIN de cada jogo | sim | só nos seus escalões |
+| Apagar jogos | sim | só jogos dos seus escalões ainda sem jogadas registadas |
 | Criar e editar escalões e plantel | sim | não |
 | Criar e gerir utilizadores (página **Utilizadores**) | sim | não |
 
@@ -203,3 +204,4 @@ A cada `git push` para o GitHub, o Render publica a versão nova sozinho.
 - No plano gratuito, o servidor adormece ao fim de algum tempo sem visitas e demora cerca de um minuto a acordar. Abra o site uns minutos antes do jogo.
 - Atrás do proxy do Render, o servidor usa o IP do dispositivo (cabeçalho `X-Forwarded-For`) para limitar as tentativas erradas, e o cookie de sessão só segue por HTTPS. Noutro serviço com proxy, defina `TRUST_PROXY=1` para o mesmo efeito.
 - Com o Upstash, os dados online deixam de estar na pasta `Voleibol-dados`. A partir daí, o servidor local e o online não partilham os dados.
+- **Confirmar que os dados ficam guardados:** entre como administrador e abra **Utilizadores**. O topo da página diz onde estão os dados (tem de dizer “Upstash (Redis)”). Se os dados se perderem ao reiniciar, ou se alguma gravação falhar (por exemplo, com um token do Upstash só de leitura), aparece um aviso a vermelho, também na página inicial. Uma alteração que não consegue ser gravada dá erro e não é aplicada.

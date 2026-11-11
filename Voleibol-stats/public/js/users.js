@@ -1,4 +1,4 @@
-import { $, esc, api, toast, requireLogin, isAdmin } from './common.js';
+import { $, esc, api, toast, requireLogin, isAdmin, storageNotice } from './common.js';
 
 const me = await requireLogin();
 let users = [];
@@ -63,6 +63,7 @@ function openForm(u = null) {
 }
 
 if (isAdmin(me)) {
+  storageNotice($('#storage-notice'), { always: true });
   $('#users-card').classList.remove('hidden');
   $('#u-role').onchange = syncRole;
   $('#btn-new').onclick = () => openForm(null);

@@ -40,6 +40,23 @@ export async function requireLogin({ admin = false } = {}) {
   return u;
 }
 
+/**
+ * Aviso para o administrador sobre o armazenamento: se os dados se perdem ao reiniciar ou se houve
+ * gravações falhadas. Com `always`, mostra também quando está tudo bem.
+ */
+export async function storageNotice(el, { always = false } = {}) {
+  let st;
+  try { st = await api('status'); } catch { return; }
+  const problems = [];
+  if (!st.persistent) problems.push('Os dados estão guardados em ficheiros temporários do servidor e <b>perdem-se a cada reinício</b>. No Render, defina <code>UPSTASH_REDIS_REST_URL</code> e <code>UPSTASH_REDIS_REST_TOKEN</code> em Environment.');
+  if (st.failures) problems.push(`Desde o último arranque, ${st.failures} gravaç${st.failures === 1 ? 'ão falhou' : 'ões falharam'}${st.lastError ? `: <code>${esc(st.lastError)}</code>` : ''}. Confirme as variáveis do Upstash (o token não pode ser só de leitura).`);
+  if (!problems.length && !always) return;
+  el.innerHTML = `<section class="card ${problems.length ? 'notice-bad' : ''}">
+    <div class="small"><b>Dados guardados em:</b> ${esc(st.storage)}</div>
+    ${problems.map((p) => `<p class="small" style="margin:.4rem 0 0">⚠️ ${p}</p>`).join('')}
+  </section>`;
+}
+
 export function userBar(u) {
   const bar = $('.topbar');
   if (!bar || $('#userbar')) return;

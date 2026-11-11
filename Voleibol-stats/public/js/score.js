@@ -39,9 +39,13 @@ async function init() {
     $('#pin').focus();
     return;
   }
-  if (!isAdmin(user)) $('#lnk-edit').classList.add('hidden');
   $('#app').classList.remove('hidden');
-  subscribe(id, (m) => { match = m; state = computeState(m); sel.hold = false; render(); }, (ok) => {
+  subscribe(id, (m) => {
+    match = m; state = computeState(m); sel.hold = false;
+    // editar: administrador ou utilizador do escalão (não quem entrou só com o PIN ou o link)
+    $('#lnk-edit').classList.toggle('hidden', !isAdmin(user) && !user?.categories.includes(m.category));
+    render();
+  }, (ok) => {
     $('#conn').textContent = ok ? '● ligado' : '● sem ligação';
     $('#conn').classList.toggle('off', !ok);
   });

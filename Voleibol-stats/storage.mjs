@@ -19,13 +19,17 @@ function writeQueue() {
   const tails = new Map();
   const q = {
     failures: 0,
+    lastError: null,
+    /** Devolve uma promessa que falha se a gravação falhar (quem não espera por ela não é afetado). */
     run(key, fn) {
-      const p = (tails.get(key) || Promise.resolve()).then(fn).catch((e) => {
+      const p = (tails.get(key) || Promise.resolve()).then(fn);
+      const settled = p.catch((e) => {
         q.failures++;
+        q.lastError = e.message;
         console.error(`Erro a gravar ${key}:`, e.message);
       });
-      tails.set(key, p);
-      p.then(() => { if (tails.get(key) === p) tails.delete(key); });
+      tails.set(key, settled);
+      settled.then(() => { if (tails.get(key) === settled) tails.delete(key); });
       return p;
     },
     /** Espera que todas as gravações pendentes terminem. */
@@ -46,6 +50,7 @@ function fileStorage(dir) {
     files: true,
     kind: `ficheiros em ${dir}`,
     get failures() { return q.failures; },
+    get lastError() { return q.lastError || null; },
     flush: q.flush,
     async readDoc(name) {
       try { return JSON.parse(await fsp.readFile(docFile(name), 'utf8')); } catch (e) {
@@ -95,6 +100,7 @@ function upstashStorage(url, token) {
     files: false,
     kind: 'Upstash (Redis)',
     get failures() { return q.failures; },
+    get lastError() { return q.lastError || null; },
     flush: q.flush,
     async readDoc(name) {
       const v = await call('GET', `vb:${name}`);

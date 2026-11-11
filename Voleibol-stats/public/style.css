@@ -64,6 +64,7 @@ h3 { font-size: .95rem; color: var(--text-secondary); }
 .topbar .spacer { flex: 1; }
 .topbar a.link { font-size: .9rem; text-decoration: none; }
 .topbar .home-link { font-weight: 600; white-space: nowrap; }
+.notice-bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--surface-1)); }
 .userbar { display: inline-flex; gap: .6rem; align-items: center; white-space: nowrap; }
 @media (max-width: 480px) { .topbar { gap: .5rem; padding: .5rem .6rem; } .topbar a.link { font-size: .85rem; } .topbar .conn:not(.off) { display: none; } }
 

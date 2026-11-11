@@ -1,4 +1,4 @@
-import { $, esc, api, param, toast, requireLogin, isAdmin } from './common.js';
+import { $, esc, api, param, toast, requireLogin, isAdmin, storageNotice } from './common.js';
 import { ROLES, MAX_PLAYERS, MAX_LIBEROS } from './engine.js';
 
 let cats = []; // escalões, cada um com o seu plantel
@@ -8,12 +8,14 @@ const team = () => cats.find((c) => c.id === catId) || { name: '', teamName: '',
 const catName = (id) => cats.find((c) => c.id === id)?.name || '';
 let editing = null; // { id, match } quando o formulário está a editar um jogo
 
-// sem sessão vai para o login; só o administrador gere jogos, escalões e plantel
+// sem sessão vai para o login. Escalões e plantel: só o administrador.
+// Jogos: o administrador e os utilizadores, nos escalões a que pertencem.
 const user = await requireLogin();
 const admin = isAdmin(user);
+if (admin) storageNotice($('#storage-notice'));
 if (!admin) {
   $('#roster-summary').classList.add('hidden');
-  $('#btn-new').classList.add('hidden');
+  if (!user.categories.length) $('#btn-new').classList.add('hidden');
 }
 
 async function loadList() {
@@ -27,7 +29,7 @@ async function loadList() {
         ? '<li class="muted">Não há jogos deste escalão.</li>'
         : admin
           ? '<li class="muted">Ainda não há jogos. Crie o escalão com o seu plantel e depois o primeiro jogo com “+ Novo jogo”.</li>'
-          : `<li class="muted">${user.categories.length ? 'Ainda não há jogos dos seus escalões.' : 'Ainda não pertence a nenhum escalão. Peça acesso ao administrador.'}</li>`;
+          : `<li class="muted">${user.categories.length ? 'Ainda não há jogos dos seus escalões. Crie o primeiro com “+ Novo jogo”.' : 'Ainda não pertence a nenhum escalão. Peça acesso ao administrador.'}</li>`;
       return;
     }
     list.innerHTML = matches
@@ -47,8 +49,8 @@ async function loadList() {
             <a class="btn btn-sm btn-primary" href="/score.html?id=${m.id}">Marcar</a>
             <a class="btn btn-sm" href="/live.html?id=${m.id}">Direto</a>
             <a class="btn btn-sm" href="/dashboard.html?id=${m.id}">Dashboard</a>
-            ${admin ? `<button class="btn-sm" data-edit="${m.id}">Editar</button>
-              <button class="btn-sm btn-danger" data-del="${m.id}" data-label="${esc(`${m.teams.A} vs ${m.teams.B}`)}">Apagar</button>` : ''}
+            <button class="btn-sm" data-edit="${m.id}">Editar</button>
+            ${admin || !m.started ? `<button class="btn-sm btn-danger" data-del="${m.id}" data-label="${esc(`${m.teams.A} vs ${m.teams.B}`)}">Apagar</button>` : ''}
           </div>
         </li>`;
       })
@@ -94,6 +96,7 @@ function rosterRow(p = {}) {
 
 /** Abre o editor do plantel de um escalão (sem `cat`: novo escalão). */
 function openRoster(cat = null) {
+  if (!admin) { toast('Só o administrador pode editar escalões e plantel'); return; }
   rosterCat = cat;
   $('#roster-title').textContent = cat ? `Escalão ${cat.name}` : 'Novo escalão';
   $('#cat-name').value = cat?.name || '';
@@ -257,6 +260,15 @@ $('#qa-add').onclick = async () => {
   if (cat.players.some((p) => p.number === number)) { toast(`O #${number} já está no plantel`); return; }
   const pos = $('#qa-pos').value;
   const chosen = chosenNow();
+  if (!admin) {
+    // utilizador: fica convocado já; entra no plantel do escalão quando o jogo for guardado
+    if (chosen.has(number)) { toast(`O #${number} já está convocado`); return; }
+    chosen.set(number, { number, name, pos, libero: pos === 'L' });
+    renderSquad(chosen);
+    $('#qa-num').value = ''; $('#qa-name').value = ''; $('#qa-pos').value = '';
+    toast(`#${number} convocado (entra no plantel ao guardar o jogo)`);
+    return;
+  }
   try {
     const saved = await api(`categories/${cat.id}`, { method: 'PUT', body: { ...cat, players: [...cat.players, { number, name, pos }] } });
     cats = cats.map((c) => (c.id === saved.id ? saved : c));
@@ -305,7 +317,6 @@ $('#btn-new').onclick = async () => {
 };
 
 async function openEdit(id) {
-  if (!admin) { toast('Só o administrador pode editar jogos'); return; }
   try {
     const m = await api(`matches/${id}`);
     await loadCategories();
@@ -313,7 +324,7 @@ async function openEdit(id) {
     catId = m.category || null;
     $('#form-title').textContent = 'Editar jogo';
     $('#btn-submit').textContent = 'Guardar alterações';
-    $('#btn-delete').classList.remove('hidden');
+    $('#btn-delete').classList.toggle('hidden', !admin && m.events.length > 0);
     $('#title').value = m.title || '';
     $('#date').value = m.date || '';
     $('#venue').value = m.venue || '';
